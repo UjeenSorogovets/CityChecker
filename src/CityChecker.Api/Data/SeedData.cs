@@ -16,99 +16,108 @@ public static class SeedData
     public static readonly Guid SrodmiescieId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa4");
     public static readonly Guid WidzewId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa5");
 
+    static readonly Dictionary<string, Guid> LodzDistrictIds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Bałuty"] = BalutyId,
+        ["Górna"] = GornaId,
+        ["Polesie"] = PolesieId,
+        ["Śródmieście"] = SrodmiescieId,
+        ["Widzew"] = WidzewId,
+    };
+
     public static async Task EnsureSeededAsync(AppDbContext db)
     {
-        if (await db.Cities.AnyAsync())
-            return;
+        if (!await db.Cities.AnyAsync())
+        {
+            db.Cities.AddRange(
+                new City
+                {
+                    CityId = LodzId,
+                    Name = "Łódź",
+                    Voivodeship = "Łódzkie",
+                    CenterLat = 51.7592,
+                    CenterLon = 19.4560,
+                    OfficialCode = "1061"
+                },
+                new City
+                {
+                    CityId = KrakowId,
+                    Name = "Kraków",
+                    Voivodeship = "Małopolskie",
+                    CenterLat = 50.0647,
+                    CenterLon = 19.9450,
+                    OfficialCode = "1261"
+                },
+                new City
+                {
+                    CityId = WarszawaId,
+                    Name = "Warszawa",
+                    Voivodeship = "Mazowieckie",
+                    CenterLat = 52.2297,
+                    CenterLon = 21.0122,
+                    OfficialCode = "1465"
+                });
+            await db.SaveChangesAsync();
+        }
 
-        db.Cities.AddRange(
-            new City
-            {
-                CityId = LodzId,
-                Name = "Łódź",
-                Voivodeship = "Łódzkie",
-                CenterLat = 51.7592,
-                CenterLon = 19.4560,
-                OfficialCode = "1061"
-            },
-            new City
-            {
-                CityId = KrakowId,
-                Name = "Kraków",
-                Voivodeship = "Małopolskie",
-                CenterLat = 50.0647,
-                CenterLon = 19.9450,
-                OfficialCode = "1261"
-            },
-            new City
-            {
-                CityId = WarszawaId,
-                Name = "Warszawa",
-                Voivodeship = "Mazowieckie",
-                CenterLat = 52.2297,
-                CenterLon = 21.0122,
-                OfficialCode = "1465"
-            });
+        await SyncLodzDistrictsAsync(db);
+    }
 
-        // ponytail: approximate dzielnice boxes — good enough for MVP coloring/PIP; replace with OSM admin boundaries later
-        db.Districts.AddRange(
-            new District
+    /// <summary>
+    /// Loads official OSM admin polygons for Łódź dzielnice (upsert by fixed IDs).
+    /// </summary>
+    public static async Task SyncLodzDistrictsAsync(AppDbContext db)
+    {
+        var path = ResolveSeedPath("lodz-districts.json");
+        if (!File.Exists(path))
+            throw new FileNotFoundException("Missing Łódź district seed GeoJSON.", path);
+
+        using var stream = File.OpenRead(path);
+        using var doc = await JsonDocument.ParseAsync(stream);
+        var districts = doc.RootElement.GetProperty("districts");
+
+        foreach (var item in districts.EnumerateArray())
+        {
+            var name = item.GetProperty("name").GetString()!;
+            if (!LodzDistrictIds.TryGetValue(name, out var id))
+                continue;
+
+            var officialCode = item.TryGetProperty("officialCode", out var codeEl) ? codeEl.GetString() : null;
+            var geometry = item.GetProperty("geometry").GetRawText();
+
+            var existing = await db.Districts.FirstOrDefaultAsync(d => d.DistrictId == id);
+            if (existing is null)
             {
-                DistrictId = BalutyId,
-                CityId = LodzId,
-                Name = "Bałuty",
-                OfficialCode = "106101",
-                Geometry = Poly(
-                    (19.35, 51.78), (19.52, 51.78), (19.52, 51.86), (19.35, 51.86))
-            },
-            new District
+                db.Districts.Add(new District
+                {
+                    DistrictId = id,
+                    CityId = LodzId,
+                    Name = name,
+                    OfficialCode = officialCode,
+                    Geometry = geometry
+                });
+            }
+            else
             {
-                DistrictId = GornaId,
-                CityId = LodzId,
-                Name = "Górna",
-                OfficialCode = "106102",
-                Geometry = Poly(
-                    (19.38, 51.68), (19.52, 51.68), (19.52, 51.75), (19.38, 51.75))
-            },
-            new District
-            {
-                DistrictId = PolesieId,
-                CityId = LodzId,
-                Name = "Polesie",
-                OfficialCode = "106103",
-                Geometry = Poly(
-                    (19.32, 51.74), (19.42, 51.74), (19.42, 51.80), (19.32, 51.80))
-            },
-            new District
-            {
-                DistrictId = SrodmiescieId,
-                CityId = LodzId,
-                Name = "Śródmieście",
-                OfficialCode = "106104",
-                Geometry = Poly(
-                    (19.42, 51.74), (19.48, 51.74), (19.48, 51.78), (19.42, 51.78))
-            },
-            new District
-            {
-                DistrictId = WidzewId,
-                CityId = LodzId,
-                Name = "Widzew",
-                OfficialCode = "106105",
-                Geometry = Poly(
-                    (19.48, 51.72), (19.62, 51.72), (19.62, 51.80), (19.48, 51.80))
-            });
+                existing.Name = name;
+                existing.OfficialCode = officialCode;
+                existing.Geometry = geometry;
+                existing.CityId = LodzId;
+            }
+        }
 
         await db.SaveChangesAsync();
     }
 
-    static string Poly(params (double Lon, double Lat)[] ring)
+    static string ResolveSeedPath(string fileName)
     {
-        var coords = ring.Select(p => new[] { p.Lon, p.Lat }).ToList();
-        coords.Add([ring[0].Lon, ring[0].Lat]);
-        return JsonSerializer.Serialize(new
+        // Prefer content next to the assembly (Docker / publish), then project Data/Seed for local runs.
+        var candidates = new[]
         {
-            type = "Polygon",
-            coordinates = new[] { coords }
-        });
+            Path.Combine(AppContext.BaseDirectory, "Data", "Seed", fileName),
+            Path.Combine(AppContext.BaseDirectory, "Seed", fileName),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Data", "Seed", fileName))
+        };
+        return candidates.FirstOrDefault(File.Exists) ?? candidates[0];
     }
 }

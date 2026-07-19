@@ -174,12 +174,28 @@ async function onZoomOrMove() {
     } else if (city && !districtLayer) {
       await loadDistricts(city.cityId);
     }
+    setDistrictInteractive(mode === "district");
     if (mode === "building") {
       await loadBuildingMarkers();
     } else {
       buildingLayer.clearLayers();
     }
   }
+}
+
+function setDistrictInteractive(interactive) {
+  if (!districtLayer) return;
+  districtLayer.eachLayer((layer) => {
+    // Leaflet Path.interactive is mostly creation-time; force pointer-events for building taps
+    const el = layer.getElement?.() || layer._path;
+    if (el) el.style.pointerEvents = interactive ? "auto" : "none";
+    if (layer.setStyle) {
+      layer.setStyle({
+        fillOpacity: interactive ? 0.45 : 0.18,
+        weight: interactive ? 1.5 : 1,
+      });
+    }
+  });
 }
 
 function nearestCity(latlng) {
@@ -226,20 +242,23 @@ async function loadDistricts(cityId) {
     {
       style: (f) => ({
         color: "#1a2b33",
-        weight: 1,
+        weight: 1.5,
         fillColor: scoreColor(f.properties.score),
         fillOpacity: 0.45,
+        interactive: currentMode(map.getZoom()) === "district",
       }),
       onEachFeature: (feature, layer) => {
         layer.bindTooltip(feature.properties.name);
         layer.on("click", (e) => {
-          L.DomEvent.stopPropagation(e);
+          // Only consume the click in district mode — otherwise let map handle building reverse-geocode
           if (currentMode(map.getZoom()) !== "district") return;
+          L.DomEvent.stopPropagation(e);
           selectDistrict(feature.properties);
         });
       },
     }
   ).addTo(map);
+  setDistrictInteractive(currentMode(map.getZoom()) === "district");
 }
 
 async function loadBuildingMarkers() {
