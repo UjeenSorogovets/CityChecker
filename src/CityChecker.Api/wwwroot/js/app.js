@@ -5,7 +5,9 @@ const ZOOM_CITY = 10;
 const ZOOM_DISTRICT = 14;
 const ZOOM_INTO_DISTRICT = 12;
 const POLAND_CENTER = [52.1, 19.4];
-const POLAND_BOUNDS = L.latLngBounds([49.0, 14.0], [55.0, 25.0]);
+// Tight mainland Poland frame (Leaflet [lat, lon])
+const POLAND_VIEW_BOUNDS = L.latLngBounds([49.05, 14.15], [54.85, 24.15]);
+const POLAND_BOUNDS = L.latLngBounds([48.8, 13.8], [55.2, 24.6]);
 
 /** @type {L.Map | null} */
 let map = null;
@@ -141,18 +143,29 @@ async function showApp() {
   els.authError.classList.add("hidden");
   applyI18n();
   initMap();
+  // Leaflet measures a hidden/zero-size container wrongly — refit after layout
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => fitPolandView());
+  });
   cities = await api("/api/cities");
   renderCityMarkers();
   updateZoomLabel();
+  fitPolandView();
+}
+
+function fitPolandView() {
+  if (!map) return;
+  map.invalidateSize();
+  map.fitBounds(POLAND_VIEW_BOUNDS, { padding: [16, 16], maxZoom: 8, animate: false });
 }
 
 function initMap() {
   if (map) return;
   map = L.map("map", {
     center: POLAND_CENTER,
-    zoom: 6,
-    maxBounds: POLAND_BOUNDS.pad(0.2),
-    minZoom: 5,
+    zoom: 7,
+    maxBounds: POLAND_BOUNDS.pad(0.15),
+    minZoom: 6,
     zoomControl: true,
   });
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
