@@ -10,6 +10,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Building> Buildings => Set<Building>();
     public DbSet<Note> Notes => Set<Note>();
     public DbSet<AppUser> Users => Set<AppUser>();
+    public DbSet<MapAnchor> MapAnchors => Set<MapAnchor>();
+    public DbSet<DistrictPick> DistrictPicks => Set<DistrictPick>();
+    public DbSet<DistrictVisit> DistrictVisits => Set<DistrictVisit>();
+    public DbSet<HousingOffer> HousingOffers => Set<HousingOffer>();
+    public DbSet<DecisionProfile> DecisionProfiles => Set<DecisionProfile>();
     public DbSet<DistrictImportRaw> DistrictsImportRaw => Set<DistrictImportRaw>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -63,6 +68,56 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Email).HasMaxLength(320).IsRequired();
             e.Property(x => x.PasswordHash).HasMaxLength(200).IsRequired();
             e.HasIndex(x => x.Email).IsUnique();
+        });
+
+        modelBuilder.Entity<MapAnchor>(e =>
+        {
+            e.HasKey(x => x.AnchorId);
+            e.Property(x => x.UserId).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Label).HasMaxLength(120).IsRequired();
+            e.HasIndex(x => x.UserId);
+        });
+
+        modelBuilder.Entity<DistrictPick>(e =>
+        {
+            e.HasKey(x => x.PickId);
+            e.Property(x => x.UserId).HasMaxLength(64).IsRequired();
+            e.Property(x => x.VetoReason).HasMaxLength(500);
+            e.Property(x => x.ReminderNote).HasMaxLength(500);
+            e.Property(x => x.RiskNotes).HasMaxLength(1000);
+            e.HasOne(x => x.District).WithMany().HasForeignKey(x => x.DistrictId);
+            e.HasIndex(x => new { x.UserId, x.DistrictId }).IsUnique();
+        });
+
+        modelBuilder.Entity<DistrictVisit>(e =>
+        {
+            e.HasKey(x => x.VisitId);
+            e.Property(x => x.UserId).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Notes).HasMaxLength(4000);
+            e.HasOne(x => x.District).WithMany().HasForeignKey(x => x.DistrictId);
+            e.HasIndex(x => new { x.UserId, x.DistrictId });
+        });
+
+        modelBuilder.Entity<HousingOffer>(e =>
+        {
+            e.HasKey(x => x.OfferId);
+            e.Property(x => x.UserId).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Title).HasMaxLength(300).IsRequired();
+            e.Property(x => x.Url).HasMaxLength(1000);
+            e.Property(x => x.KillerFlaw).HasMaxLength(500);
+            e.Property(x => x.LandlordNotes).HasMaxLength(2000);
+            e.Property(x => x.PhotoUrls).HasMaxLength(4000);
+            e.Property(x => x.VoiceNoteUrl).HasMaxLength(1000);
+            e.Property(x => x.ReminderNote).HasMaxLength(500);
+            e.HasIndex(x => x.UserId);
+            e.HasIndex(x => new { x.UserId, x.IsFinalist });
+        });
+
+        modelBuilder.Entity<DecisionProfile>(e =>
+        {
+            e.HasKey(x => x.ProfileId);
+            e.Property(x => x.UserId).HasMaxLength(64).IsRequired();
+            e.HasIndex(x => x.UserId).IsUnique();
         });
 
         modelBuilder.Entity<Note>(e =>

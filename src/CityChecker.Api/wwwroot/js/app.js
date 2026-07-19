@@ -1,5 +1,6 @@
 import { api, getToken, setToken, clearToken, isTokenExpired } from "./api.js";
 import { applyI18n, t, toggleLang } from "./i18n.js";
+import { initHousing, housingMapClick, enrichDistrictSheet } from "./housing.js";
 
 const ZOOM_CITY = 10;
 const ZOOM_DISTRICT = 14;
@@ -241,6 +242,12 @@ function initMap() {
   map.on("zoomend", scheduleMapUpdate);
   map.on("moveend", scheduleMapUpdate);
   map.on("click", onMapClick);
+
+  initHousing({
+    map,
+    getActiveCityId: () => activeCityId,
+    getContext: () => context,
+  });
 }
 
 function scheduleMapUpdate() {
@@ -491,6 +498,7 @@ async function onMapClick(e) {
     showAuthError({ message: t("sessionExpired") });
     return;
   }
+  if (housingMapClick(e.latlng)) return;
   const mode = currentMode(map.getZoom());
   if (mode === "building") {
     els.sheetTitle.textContent = t("loading");
@@ -518,6 +526,7 @@ async function selectCity(city) {
   selectedDistrictId = null;
   applyDistrictStyles();
   context = { level: "City", cityId: city.cityId, title: city.name };
+  document.getElementById("housing-district-slot").innerHTML = "";
   // Enter district zoom band so polygons load
   map.setView([city.centerLat, city.centerLon], ZOOM_INTO_DISTRICT);
   await refreshSheet();
@@ -533,6 +542,7 @@ async function selectDistrict(d) {
     title: d.name,
   };
   await refreshSheet();
+  await enrichDistrictSheet(selectedDistrictId, document.getElementById("housing-district-slot"));
 }
 
 async function selectBuilding(b) {
@@ -546,6 +556,24 @@ async function selectBuilding(b) {
     title: b.addressLine,
   };
   await refreshSheet();
+  const slot = document.getElementById("housing-district-slot");
+  slot.innerHTML = "";
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "btn primary";
+  add.textContent = t("addOfferHere");
+  add.onclick = () => {
+    import("./housing.js").then(({ openOfferAt }) =>
+      openOfferAt({
+        lat: b.lat,
+        lon: b.lon,
+        cityId: b.cityId,
+        districtId: b.districtId,
+        buildingId: b.buildingId,
+        title: b.addressLine,
+      }));
+  };
+  slot.appendChild(add);
 }
 
 async function refreshSheet() {

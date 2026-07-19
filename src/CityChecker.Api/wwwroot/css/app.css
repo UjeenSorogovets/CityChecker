@@ -289,6 +289,76 @@ body {
   margin-top: 0.25rem;
 }
 
+.housing-panel {
+  display: none;
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 950;
+  width: min(92vw, 22rem);
+  max-height: calc(100% - 1rem);
+  overflow: auto;
+  background: rgba(247, 250, 251, 0.97);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem 0.85rem;
+  box-shadow: var(--shadow);
+}
+.housing-panel.open { display: block; }
+.housing-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.65rem;
+}
+.housing-tabs .auth-tab { font-size: 0.75rem; padding: 0.3rem 0.45rem; }
+.housing-list { list-style: none; padding: 0; margin: 0.5rem 0 0; display: grid; gap: 0.4rem; }
+.housing-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.35rem;
+}
+.housing-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  margin-top: 0.5rem;
+}
+.housing-table th, .housing-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.25rem 0.2rem;
+  text-align: left;
+  white-space: nowrap;
+}
+.housing-filters {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+}
+.housing-filters input[type="number"] { width: 4rem; }
+.housing-district-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.65rem;
+}
+.housing-panel label {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+.housing-panel label input[type="number"] { width: 4rem; }
+.muted { color: var(--muted); font-size: 0.85rem; }
+#housing-place-anchor.active { outline: 2px solid var(--accent); }
+
 @media (min-width: 900px) {
   .app {
     grid-template-columns: 1fr 360px;

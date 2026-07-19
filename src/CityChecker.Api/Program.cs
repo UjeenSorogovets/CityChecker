@@ -23,6 +23,7 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 builder.Services.Configure<NominatimOptions>(builder.Configuration.GetSection(NominatimOptions.Section));
 builder.Services.Configure<ImportOptions>(builder.Configuration.GetSection(ImportOptions.Section));
 builder.Services.AddHttpClient<NominatimClient>();
+builder.Services.AddHttpClient<HousingGeoService>();
 builder.Services.AddScoped<BuildingService>();
 builder.Services.AddScoped<AggregateService>();
 builder.Services.AddScoped<LodzDistrictImportService>();
@@ -144,6 +145,7 @@ app.MapDistrictEndpoints();
 app.MapBuildingEndpoints();
 app.MapNoteEndpoints();
 app.MapAggregateEndpoints();
+app.MapHousingEndpoints();
 app.MapAdminEndpoints();
 
 app.MapFallbackToFile("index.html");

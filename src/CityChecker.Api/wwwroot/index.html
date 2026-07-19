@@ -40,12 +40,53 @@
       <div class="brand" data-i18n="appTitle">Poland City Comfort Mapper</div>
       <div class="topbar-actions">
         <span id="zoom-mode" class="zoom-mode"></span>
+        <button type="button" id="housing-toggle" class="btn ghost" data-i18n="housingTools">Decide</button>
         <button type="button" id="lang-toggle" class="btn ghost" aria-label="Language">EN</button>
         <button type="button" id="sign-out" class="btn ghost" data-i18n="signOut">Sign out</button>
       </div>
     </header>
     <main class="map-wrap">
       <div id="map"></div>
+      <aside id="housing-panel" class="housing-panel">
+        <div class="housing-tabs">
+          <button type="button" class="auth-tab active" data-htab="anchors" data-i18n="anchors">Anchors</button>
+          <button type="button" class="auth-tab" data-htab="compare" data-i18n="compare">Compare</button>
+          <button type="button" class="auth-tab" data-htab="offers" data-i18n="offers">Offers</button>
+          <button type="button" class="auth-tab" data-htab="finalists" data-i18n="finalists">Finalists</button>
+          <button type="button" class="auth-tab" data-htab="weights" data-i18n="weights">Weights</button>
+        </div>
+        <div data-hpanel="anchors">
+          <p class="muted" data-i18n="anchorsHint">Save work / family points, then compare district drive times.</p>
+          <button type="button" id="housing-place-anchor" class="btn primary" data-i18n="placeAnchor">Place anchor on map</button>
+          <ul id="housing-anchors-list" class="housing-list"></ul>
+        </div>
+        <div data-hpanel="compare" class="hidden">
+          <div class="housing-filters">
+            <label><input type="checkbox" id="filter-shortlist" /> <span data-i18n="filterShortlist">Shortlist only</span></label>
+            <label><span data-i18n="filterMinScore">Min score</span> <input type="number" id="filter-minscore" min="0" max="10" value="0" /></label>
+            <label><span data-i18n="filterMaxCommute">Max commute (min)</span> <input type="number" id="filter-maxcommute" min="0" value="0" /></label>
+          </div>
+          <button type="button" id="housing-refresh-compare" class="btn primary" data-i18n="refreshCompare">Refresh compare</button>
+          <button type="button" id="housing-export" class="btn ghost" data-i18n="exportCsv">Export CSV</button>
+          <div id="housing-compare"></div>
+        </div>
+        <div data-hpanel="offers" class="hidden">
+          <button type="button" id="housing-add-offer" class="btn primary" data-i18n="addOffer">Add offer at map center</button>
+          <ul id="housing-offers-list" class="housing-list"></ul>
+        </div>
+        <div data-hpanel="finalists" class="hidden">
+          <div id="housing-finalists"></div>
+        </div>
+        <div data-hpanel="weights" class="hidden">
+          <p class="muted" data-i18n="weightsHint">Weights for district ranking (relative).</p>
+          <label>Commute <input type="number" id="w-commute" min="0" max="100" /></label>
+          <label>Quiet <input type="number" id="w-quiet" min="0" max="100" /></label>
+          <label>Price <input type="number" id="w-price" min="0" max="100" /></label>
+          <label>Green <input type="number" id="w-green" min="0" max="100" /></label>
+          <label>Comfort <input type="number" id="w-comfort" min="0" max="100" /></label>
+          <button type="button" id="housing-save-weights" class="btn primary" data-i18n="save">Save</button>
+        </div>
+      </aside>
     </main>
     <aside id="sheet" class="sheet">
       <div class="sheet-handle" id="sheet-handle"></div>
@@ -54,6 +95,7 @@
         <button type="button" id="add-note-btn" class="btn primary hidden" data-i18n="addNote">Add note</button>
       </div>
       <div id="sheet-meta" class="sheet-meta"></div>
+      <div id="housing-district-slot"></div>
       <ul id="notes-list" class="notes-list"></ul>
     </aside>
   </div>

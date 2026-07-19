@@ -70,6 +70,18 @@ docker-compose exec db psql -U citychecker -d citychecker -c "SELECT Find_SRID('
 docker-compose exec db psql -U citychecker -d citychecker -c "SELECT COUNT(*) FROM \"Districts\" WHERE NOT ST_IsValid(\"Geom\");"
 ```
 
+## Housing decision tools
+
+After sign-in, open **Decide** on the map:
+
+- **Anchors** — place work/family points; district compare uses OSRM drive times  
+- **Compare** — shortlist/veto districts, amenity probe (Overpass), ranked table, CSV export  
+- **Offers** — pin rent/buy listings with monthly cost + deal scorecard  
+- **Finalists** — side-by-side matrix for 2–3 flats  
+- **Weights** — personal ranking weights (commute / quiet / price / green / comfort)
+
+District sheet actions: Shortlist, Veto, Probe amenities, Log visit, Add offer.
+
 ## Zoom behaviour
 
 | Zoom | Mode |
