@@ -1,8 +1,9 @@
-import { api, getToken, setToken, clearToken } from "./api.js";
+import { api, getToken, setToken, clearToken, isTokenExpired } from "./api.js";
 import { applyI18n, t, toggleLang } from "./i18n.js";
 
 const ZOOM_CITY = 10;
 const ZOOM_DISTRICT = 14;
+const ZOOM_INTO_DISTRICT = 12;
 const POLAND_CENTER = [52.1, 19.4];
 const POLAND_BOUNDS = L.latLngBounds([49.0, 14.0], [55.0, 25.0]);
 
@@ -17,8 +18,16 @@ let buildingLayer = L.layerGroup();
 
 let cities = [];
 let activeCityId = null;
-let context = null; // { level, cityId, districtId?, buildingId?, title }
+let fittedForCityId = null;
+let context = null;
 let editingNoteId = null;
+/** @type {AbortController | null} */
+let mapAbort = null;
+let moveTimer = null;
+/** @type {Record<string, number|null>} */
+let districtScores = {};
+/** @type {Record<string, number|null>} */
+let buildingScores = {};
 
 const els = {
   authGate: document.getElementById("auth-gate"),
@@ -60,26 +69,43 @@ function updateZoomLabel() {
   els.zoomMode.textContent = t(key);
 }
 
+function requireAuthOrGate() {
+  const token = getToken();
+  if (!token || isTokenExpired(token)) {
+    clearToken();
+    return false;
+  }
+  return true;
+}
+
 async function initAuth() {
   applyI18n();
   const cfg = await fetch("/api/config").then((r) => r.json());
   const clientId = cfg.googleClientId;
 
-  if (getToken()) {
+  if (requireAuthOrGate()) {
     try {
       await api("/api/cities");
       showApp();
       return;
     } catch (err) {
-      showAuthError(err);
+      if (err.status === 401 || err.status === 403) {
+        showAuthError(err.status === 401 ? { message: t("sessionExpired") } : err);
+      } else {
+        showAuthError(err);
+      }
       clearToken();
     }
+  } else if (getToken() === null && sessionStorage.getItem("cc_had_token")) {
+    els.authError.textContent = t("sessionExpired");
+    els.authError.classList.remove("hidden");
   }
 
   window.google.accounts.id.initialize({
     client_id: clientId,
     callback: async (response) => {
       setToken(response.credential);
+      sessionStorage.setItem("cc_had_token", "1");
       try {
         await api("/api/cities");
         showApp();
@@ -98,6 +124,8 @@ async function initAuth() {
 }
 
 function showAuthError(err) {
+  els.authGate.classList.remove("hidden");
+  els.app.classList.add("hidden");
   const sub = err?.body?.yourGoogleSub;
   if (sub) {
     els.authError.innerHTML = `${t("authFailed")}<br><br>${t("authSubHint")}<br><code style="user-select:all;word-break:break-all">${sub}</code>`;
@@ -110,6 +138,7 @@ function showAuthError(err) {
 async function showApp() {
   els.authGate.classList.add("hidden");
   els.app.classList.remove("hidden");
+  els.authError.classList.add("hidden");
   applyI18n();
   initMap();
   cities = await api("/api/cities");
@@ -134,14 +163,20 @@ function initMap() {
   cityLayer.addTo(map);
   buildingLayer.addTo(map);
 
-  map.on("zoomend", onZoomOrMove);
-  map.on("moveend", onZoomOrMove);
+  map.on("zoomend", scheduleMapUpdate);
+  map.on("moveend", scheduleMapUpdate);
   map.on("click", onMapClick);
+}
+
+function scheduleMapUpdate() {
+  clearTimeout(moveTimer);
+  moveTimer = setTimeout(() => onZoomOrMove(), 300);
 }
 
 function renderCityMarkers() {
   cityLayer.clearLayers();
-  for (const c of cities) {
+  // Hide cities with no district polygons (Kraków/Warszawa until imported)
+  for (const c of cities.filter((x) => (x.districtCount ?? 0) > 0)) {
     const m = L.circleMarker([c.centerLat, c.centerLon], {
       radius: 8,
       color: "#0d6e6e",
@@ -159,34 +194,41 @@ function renderCityMarkers() {
 }
 
 async function onZoomOrMove() {
+  if (!requireAuthOrGate()) {
+    showAuthError({ message: t("sessionExpired") });
+    return;
+  }
   updateZoomLabel();
   const mode = currentMode(map.getZoom());
   if (mode === "city") {
     clearDistricts();
     buildingLayer.clearLayers();
     cityLayer.addTo(map);
-  } else {
-    map.removeLayer(cityLayer);
-    const city = nearestCity(map.getCenter());
-    if (city && city.cityId !== activeCityId) {
-      activeCityId = city.cityId;
-      await loadDistricts(city.cityId);
-    } else if (city && !districtLayer) {
-      await loadDistricts(city.cityId);
-    }
-    setDistrictInteractive(mode === "district");
-    if (mode === "building") {
-      await loadBuildingMarkers();
-    } else {
-      buildingLayer.clearLayers();
-    }
+    return;
   }
+
+  map.removeLayer(cityLayer);
+  const city = nearestCity(map.getCenter());
+  if (city && (city.districtCount ?? 0) === 0) {
+    clearDistricts();
+    buildingLayer.clearLayers();
+    return;
+  }
+
+  if (city && city.cityId !== activeCityId) {
+    await loadDistricts(city.cityId, { fit: true });
+  } else if (city && !districtLayer) {
+    await loadDistricts(city.cityId, { fit: true });
+  }
+
+  setDistrictInteractive(mode === "district");
+  if (mode === "building") await loadBuildingMarkers();
+  else buildingLayer.clearLayers();
 }
 
 function setDistrictInteractive(interactive) {
   if (!districtLayer) return;
   districtLayer.eachLayer((layer) => {
-    // Leaflet Path.interactive is mostly creation-time; force pointer-events for building taps
     const el = layer.getElement?.() || layer._path;
     if (el) el.style.pointerEvents = interactive ? "auto" : "none";
     if (layer.setStyle) {
@@ -217,30 +259,47 @@ function clearDistricts() {
     districtLayer = null;
   }
   activeCityId = null;
+  fittedForCityId = null;
+  districtScores = {};
+  buildingScores = {};
 }
 
-async function loadDistricts(cityId) {
-  clearDistricts();
+async function refreshCityAggregates(cityId, signal) {
+  const batch = await api(`/api/cities/${cityId}/aggregates`, { signal });
+  districtScores = {};
+  buildingScores = {};
+  for (const d of batch.districts || []) districtScores[d.id] = d.scoreOverall;
+  for (const b of batch.buildings || []) buildingScores[b.id] = b.scoreOverall;
+  return batch;
+}
+
+async function loadDistricts(cityId, { fit = false } = {}) {
+  if (mapAbort) mapAbort.abort();
+  mapAbort = new AbortController();
+  const { signal } = mapAbort;
+
+  if (districtLayer) {
+    map.removeLayer(districtLayer);
+    districtLayer = null;
+  }
   activeCityId = cityId;
 
   const token = getToken();
-  const res = await fetch(`/api/cities/${cityId}/districts/geojson`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const [res] = await Promise.all([
+    fetch(`/api/cities/${cityId}/districts/geojson`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal,
+    }),
+    refreshCityAggregates(cityId, signal),
+  ]);
   if (!res.ok) throw new Error("Failed to load district GeoJSON");
   const fc = await res.json();
 
-  // Attach aggregate scores for coloring
   for (const f of fc.features || []) {
     const id = f.properties?.id;
     f.properties.districtId = id;
     f.properties.cityId = f.properties.cityId || cityId;
-    f.properties.score = null;
-    if (!id) continue;
-    try {
-      const agg = await api(`/api/aggregates/district/${id}`);
-      f.properties.score = agg.scoreOverall;
-    } catch { /* ignore */ }
+    f.properties.score = id ? districtScores[id] ?? null : null;
   }
 
   districtLayer = L.geoJSON(fc, {
@@ -274,28 +333,48 @@ async function loadDistricts(cityId) {
   }).addTo(map);
 
   setDistrictInteractive(currentMode(map.getZoom()) === "district");
-  try {
-    map.fitBounds(districtLayer.getBounds(), { padding: [20, 20], maxZoom: 13 });
-  } catch { /* empty layer */ }
+
+  if (fit && fittedForCityId !== cityId) {
+    fittedForCityId = cityId;
+    try {
+      map.fitBounds(districtLayer.getBounds(), { padding: [20, 20], maxZoom: 13 });
+    } catch { /* empty */ }
+  }
+}
+
+async function reloadDistrictColors() {
+  if (!activeCityId || !districtLayer) return;
+  await refreshCityAggregates(activeCityId);
+  districtLayer.eachLayer((layer) => {
+    const id = layer.feature?.properties?.id;
+    if (id) layer.feature.properties.score = districtScores[id] ?? null;
+    districtLayer.resetStyle(layer);
+  });
+  setDistrictInteractive(currentMode(map.getZoom()) === "district");
 }
 
 async function loadBuildingMarkers() {
   if (!activeCityId) return;
+  if (mapAbort) {
+    /* keep previous abort for districts; use separate signal for buildings */
+  }
+  const ctrl = new AbortController();
   const b = map.getBounds();
   const qs = new URLSearchParams({
-    minLat: b.getSouth(),
-    minLon: b.getWest(),
-    maxLat: b.getNorth(),
-    maxLon: b.getEast(),
+    minLat: String(b.getSouth()),
+    minLon: String(b.getWest()),
+    maxLat: String(b.getNorth()),
+    maxLon: String(b.getEast()),
   });
-  const buildings = await api(`/api/cities/${activeCityId}/buildings?${qs}`);
+  if (!Object.keys(buildingScores).length) {
+    try {
+      await refreshCityAggregates(activeCityId, ctrl.signal);
+    } catch { /* ignore */ }
+  }
+  const buildings = await api(`/api/cities/${activeCityId}/buildings?${qs}`, { signal: ctrl.signal });
   buildingLayer.clearLayers();
   for (const bld of buildings) {
-    let score = null;
-    try {
-      const agg = await api(`/api/aggregates/building/${bld.buildingId}`);
-      score = agg.scoreOverall;
-    } catch { /* ignore */ }
+    const score = buildingScores[bld.buildingId] ?? null;
     const m = L.circleMarker([bld.lat, bld.lon], {
       radius: 6,
       color: scoreColor(score),
@@ -313,6 +392,10 @@ async function loadBuildingMarkers() {
 }
 
 async function onMapClick(e) {
+  if (!requireAuthOrGate()) {
+    showAuthError({ message: t("sessionExpired") });
+    return;
+  }
   const mode = currentMode(map.getZoom());
   if (mode === "building") {
     els.sheetTitle.textContent = t("loading");
@@ -322,12 +405,13 @@ async function onMapClick(e) {
         body: JSON.stringify({ lat: e.latlng.lat, lon: e.latlng.lng }),
       });
       await selectBuilding(building);
+      await refreshCityAggregates(activeCityId || building.cityId);
       await loadBuildingMarkers();
-    } catch {
-      els.sheetTitle.textContent = t("geocodeFail");
+    } catch (err) {
+      els.sheetTitle.textContent = err?.body?.error || err?.message || t("geocodeFail");
+      els.sheetMeta.textContent = t("geocodeHint");
       els.addNoteBtn.classList.add("hidden");
       els.notesList.innerHTML = "";
-      els.sheetMeta.textContent = "";
     }
   } else if (mode === "city") {
     const city = nearestCity(e.latlng);
@@ -337,7 +421,8 @@ async function onMapClick(e) {
 
 async function selectCity(city) {
   context = { level: "City", cityId: city.cityId, title: city.name };
-  map.setView([city.centerLat, city.centerLon], Math.max(map.getZoom(), ZOOM_CITY));
+  // Enter district zoom band so polygons load
+  map.setView([city.centerLat, city.centerLon], ZOOM_INTO_DISTRICT);
   await refreshSheet();
 }
 
@@ -364,6 +449,10 @@ async function selectBuilding(b) {
 
 async function refreshSheet() {
   if (!context) return;
+  if (!requireAuthOrGate()) {
+    showAuthError({ message: t("sessionExpired") });
+    return;
+  }
   els.sheetTitle.textContent = context.title;
   els.addNoteBtn.classList.remove("hidden");
   els.notesList.innerHTML = `<li class="empty-notes">${t("loading")}</li>`;
@@ -378,37 +467,45 @@ async function refreshSheet() {
     notesPath = `/api/notes?buildingId=${context.buildingId}`;
   }
 
-  const [agg, notes] = await Promise.all([api(aggPath), api(notesPath)]);
-  els.sheetMeta.textContent =
-    agg.noteCount > 0 && agg.scoreOverall != null
-      ? `${t("avgScore")}: ${agg.scoreOverall.toFixed(1)} (${agg.noteCount})`
-      : "";
+  try {
+    const [agg, notes] = await Promise.all([api(aggPath), api(notesPath)]);
+    els.sheetMeta.textContent =
+      agg.noteCount > 0 && agg.scoreOverall != null
+        ? `${t("avgScore")}: ${agg.scoreOverall.toFixed(1)} (${agg.noteCount})`
+        : "";
 
-  if (!notes.length) {
-    els.notesList.innerHTML = `<li class="empty-notes">${t("noNotes")}</li>`;
-    return;
-  }
+    if (!notes.length) {
+      els.notesList.innerHTML = `<li class="empty-notes">${t("noNotes")}</li>`;
+      return;
+    }
 
-  els.notesList.innerHTML = "";
-  for (const n of notes) {
-    const li = document.createElement("li");
-    li.className = "note-card";
-    li.innerHTML = `
-      <div><span class="score">${n.scoreOverall}/10</span><span class="meta">${n.level}</span></div>
-      <p></p>
-      <div class="note-actions">
-        <button type="button" class="btn ghost edit">${t("editNote")}</button>
-        <button type="button" class="btn ghost danger del">${t("delete")}</button>
-      </div>`;
-    li.querySelector("p").textContent = n.text;
-    li.querySelector(".edit").onclick = () => openNoteForm(n);
-    li.querySelector(".del").onclick = async () => {
-      await api(`/api/notes/${n.noteId}`, { method: "DELETE" });
-      await refreshSheet();
-      if (context.level === "District" && activeCityId) await loadDistricts(activeCityId);
-      if (context.level === "Building") await loadBuildingMarkers();
-    };
-    els.notesList.appendChild(li);
+    els.notesList.innerHTML = "";
+    for (const n of notes) {
+      const li = document.createElement("li");
+      li.className = "note-card";
+      li.innerHTML = `
+        <div><span class="score">${n.scoreOverall}/10</span><span class="meta">${n.level}</span></div>
+        <p></p>
+        <div class="note-actions">
+          <button type="button" class="btn ghost edit">${t("editNote")}</button>
+          <button type="button" class="btn ghost danger del">${t("delete")}</button>
+        </div>`;
+      li.querySelector("p").textContent = n.text;
+      li.querySelector(".edit").onclick = () => openNoteForm(n);
+      li.querySelector(".del").onclick = async () => {
+        await api(`/api/notes/${n.noteId}`, { method: "DELETE" });
+        await refreshSheet();
+        if (context.level === "District") await reloadDistrictColors();
+        if (context.level === "Building") {
+          await refreshCityAggregates(activeCityId || context.cityId);
+          await loadBuildingMarkers();
+        }
+      };
+      els.notesList.appendChild(li);
+    }
+  } catch (err) {
+    if (err.status === 401) showAuthError({ message: t("sessionExpired") });
+    else throw err;
   }
 }
 
@@ -461,8 +558,11 @@ els.form.addEventListener("submit", async (e) => {
   }
   els.dialog.close();
   await refreshSheet();
-  if (context.level === "District" && activeCityId) await loadDistricts(activeCityId);
-  if (context.level === "Building") await loadBuildingMarkers();
+  if (context.level === "District") await reloadDistrictColors();
+  if (context.level === "Building") {
+    await refreshCityAggregates(activeCityId || context.cityId);
+    await loadBuildingMarkers();
+  }
 });
 
 document.getElementById("lang-toggle").addEventListener("click", () => {
@@ -480,7 +580,6 @@ document.getElementById("sheet-handle").addEventListener("click", () => {
   els.sheet.classList.toggle("expanded");
 });
 
-// Wait for GIS script
 function waitGoogle() {
   if (window.google?.accounts?.id) initAuth();
   else setTimeout(waitGoogle, 50);

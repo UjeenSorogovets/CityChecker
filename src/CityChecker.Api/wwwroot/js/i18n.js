@@ -23,7 +23,9 @@ export const i18n = {
     loading: "Loading…",
     authFailed: "Sign-in failed or your account is not allowed.",
     authSubHint: "Copy this into GOOGLE_ALLOWED_USER_ID in .env, then restart docker-compose:",
+    sessionExpired: "Your Google session expired. Please sign in again.",
     geocodeFail: "Could not resolve address here.",
+    geocodeHint: "Zoom to building mode (≥15) and tap again, or try a nearby point.",
   },
   ru: {
     appTitle: "Карта комфорта городов Польши",
@@ -49,7 +51,9 @@ export const i18n = {
     loading: "Загрузка…",
     authFailed: "Вход не выполнен или аккаунт не разрешён.",
     authSubHint: "Скопируйте это в GOOGLE_ALLOWED_USER_ID в .env и перезапустите docker-compose:",
+    sessionExpired: "Сессия Google истекла. Войдите снова.",
     geocodeFail: "Не удалось определить адрес.",
+    geocodeHint: "Приблизьте карту (режим зданий ≥15) и нажмите ещё раз.",
   },
 };
 

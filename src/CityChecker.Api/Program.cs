@@ -24,6 +24,7 @@ builder.Services.AddHttpClient<NominatimClient>();
 builder.Services.AddScoped<BuildingService>();
 builder.Services.AddScoped<AggregateService>();
 builder.Services.AddScoped<LodzDistrictImportService>();
+builder.Services.AddScoped<PolygonDistrictImportService>();
 
 var googleClientId = builder.Configuration["Google:ClientId"] ?? "";
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -53,13 +54,14 @@ using (var scope = app.Services.CreateScope())
     await db.Database.MigrateAsync();
     await SeedData.EnsureSeededAsync(db);
 
-    // Auto-import Łódź osiedla when districts are empty and CSV is present
-    if (!await db.Districts.AnyAsync())
+    var lodzImporter = scope.ServiceProvider.GetRequiredService<LodzDistrictImportService>();
+    var polyImporter = scope.ServiceProvider.GetRequiredService<PolygonDistrictImportService>();
+
+    if (!await db.Districts.AnyAsync(d => d.CityId == SeedData.LodzId))
     {
         try
         {
-            var importer = scope.ServiceProvider.GetRequiredService<LodzDistrictImportService>();
-            var result = await importer.ImportAsync();
+            var result = await lodzImporter.ImportAsync();
             app.Logger.LogInformation(
                 "Auto-imported Łódź districts: {Transformed}/{Unique} (skipped {Skipped})",
                 result.Transformed, result.UniqueNames, result.Skipped);
@@ -68,6 +70,18 @@ using (var scope = app.Services.CreateScope())
         {
             app.Logger.LogWarning(ex, "Auto-import of Łódź districts skipped");
         }
+    }
+
+    try
+    {
+        await polyImporter.ImportForCityAsync(
+            SeedData.KrakowId, "DataImports/krakow-districts-polygons.json", "OSM Kraków dzielnice");
+        await polyImporter.ImportForCityAsync(
+            SeedData.WarszawaId, "DataImports/warszawa-districts-polygons.json", "OSM Warszawa dzielnice");
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Auto-import of Kraków/Warszawa districts skipped");
     }
 }
 

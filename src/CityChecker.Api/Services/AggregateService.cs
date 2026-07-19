@@ -27,6 +27,52 @@ public class AggregateService(AppDbContext db)
         return await AvgAsync(q, ct);
     }
 
+    public async Task<CityAggregatesDto> ForCityBatchAsync(Guid cityId, CancellationToken ct = default)
+    {
+        var cityAgg = await ForCityAsync(cityId, ct);
+
+        // District notes + building notes rolled to district
+        var districtRows = await db.Notes.AsNoTracking()
+            .Where(n => n.TargetCityId == cityId && n.TargetDistrictId != null &&
+                        (n.Level == NoteLevel.District || n.Level == NoteLevel.Building))
+            .GroupBy(n => n.TargetDistrictId!.Value)
+            .Select(g => new
+            {
+                Id = g.Key,
+                NoteCount = g.Count(),
+                ScoreOverall = g.Average(n => (double)n.ScoreOverall),
+                ScoreNature = g.Where(n => n.ScoreNature != null).Average(n => (double?)n.ScoreNature),
+                ScoreShops = g.Where(n => n.ScoreShops != null).Average(n => (double?)n.ScoreShops),
+                ScoreTransport = g.Where(n => n.ScoreTransport != null).Average(n => (double?)n.ScoreTransport),
+                ScoreSafety = g.Where(n => n.ScoreSafety != null).Average(n => (double?)n.ScoreSafety),
+            })
+            .ToListAsync(ct);
+
+        var buildingRows = await db.Notes.AsNoTracking()
+            .Where(n => n.TargetCityId == cityId && n.Level == NoteLevel.Building && n.TargetBuildingId != null)
+            .GroupBy(n => n.TargetBuildingId!.Value)
+            .Select(g => new
+            {
+                Id = g.Key,
+                NoteCount = g.Count(),
+                ScoreOverall = g.Average(n => (double)n.ScoreOverall),
+                ScoreNature = g.Where(n => n.ScoreNature != null).Average(n => (double?)n.ScoreNature),
+                ScoreShops = g.Where(n => n.ScoreShops != null).Average(n => (double?)n.ScoreShops),
+                ScoreTransport = g.Where(n => n.ScoreTransport != null).Average(n => (double?)n.ScoreTransport),
+                ScoreSafety = g.Where(n => n.ScoreSafety != null).Average(n => (double?)n.ScoreSafety),
+            })
+            .ToListAsync(ct);
+
+        return new CityAggregatesDto(
+            cityAgg,
+            districtRows.Select(r => new IdAggregateDto(
+                r.Id, Round(r.ScoreOverall), Round(r.ScoreNature), Round(r.ScoreShops),
+                Round(r.ScoreTransport), Round(r.ScoreSafety), r.NoteCount)).ToList(),
+            buildingRows.Select(r => new IdAggregateDto(
+                r.Id, Round(r.ScoreOverall), Round(r.ScoreNature), Round(r.ScoreShops),
+                Round(r.ScoreTransport), Round(r.ScoreSafety), r.NoteCount)).ToList());
+    }
+
     static async Task<AggregateDto> AvgAsync(IQueryable<Note> q, CancellationToken ct)
     {
         var count = await q.CountAsync(ct);

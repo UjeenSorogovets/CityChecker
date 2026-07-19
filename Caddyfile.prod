@@ -1,0 +1,7 @@
+# Set DOMAIN to your public hostname for Let's Encrypt certificates.
+# Example: DOMAIN=comfort.example.com ACME_EMAIL=you@example.com
+
+{$DOMAIN:localhost} {
+	encode gzip
+	reverse_proxy api:8080
+}

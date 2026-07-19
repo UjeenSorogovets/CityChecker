@@ -27,5 +27,13 @@ public static class AggregateEndpoints
             if (user.EnsureOwner(config) is { } err) return err;
             return Results.Ok(await aggregates.ForBuildingAsync(buildingId));
         });
+
+        // Batch: one call for all district + building averages in a city (avoids N+1 on the map)
+        app.MapGet("/api/cities/{cityId:guid}/aggregates", async (
+            Guid cityId, ClaimsPrincipal user, IConfiguration config, AggregateService aggregates) =>
+        {
+            if (user.EnsureOwner(config) is { } err) return err;
+            return Results.Ok(await aggregates.ForCityBatchAsync(cityId));
+        }).RequireAuthorization();
     }
 }

@@ -54,6 +54,7 @@ Authorized JS origin: `http://localhost:5097` (and/or `http://localhost:8080` fo
 |--------|------|--------|
 | GET | `/api/cities` | City list |
 | GET | `/api/cities/{id}/districts` | District metadata (no geometry) |
+| GET | `/api/cities/{id}/aggregates` | Batch city + all district/building averages |
 | GET | `/api/cities/{id}/districts/geojson` | Leaflet-ready FeatureCollection |
 | GET | `/api/districts/{id}` | District details |
 | POST | `/api/admin/import/lodz-districts` | Re-import CSV + polygons |
@@ -77,8 +78,26 @@ docker-compose exec db psql -U citychecker -d citychecker -c "SELECT COUNT(*) FR
 | 11–14 | District / osiedle polygons |
 | ≥ 15 | Building (map click → reverse geocode) |
 
+City click zooms to band 12 so districts load. Cities without imported districts are hidden on the map.
+
+## Production (HTTPS)
+
+```bash
+export DOMAIN=your.domain.com
+export ACME_EMAIL=you@example.com
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+```
+
+Add `https://your.domain.com` to Google OAuth Authorized JavaScript origins. Caddy terminates TLS on 80/443 and proxies to the API.
+
+## Kraków / Warszawa
+
+OSM dzielnice caches: `DataImports/krakow-districts-polygons.json`, `warszawa-districts-polygons.json` (18 each). Imported automatically on startup when that city has zero districts. Regenerate with `python DataImports/_fetch_krakow_warszawa.py`.
+
 ## Files
 
-- `DataImports/Granice osiedli.csv` — official open data (address lists per osiedle)
-- `DataImports/lodz-osiedla-polygons.json` — OSM MultiPolygon/Polygon cache for those names
+- `DataImports/Granice osiedli.csv` — Łódź open data (address lists per osiedle)
+- `DataImports/lodz-osiedla-polygons.json` — Łódź OSM osiedla
+- `DataImports/krakow-districts-polygons.json` / `warszawa-districts-polygons.json`
 - `src/CityChecker.Api` — API + `wwwroot` SPA
+- `docker-compose.prod.yml` + `Caddyfile.prod` — TLS overlay

@@ -54,13 +54,18 @@ public class NominatimClient(HttpClient http, IOptionsSnapshot<NominatimOptions>
             if (json?.Address is null ||
                 !string.Equals(json.Address.CountryCode, "pl", StringComparison.OrdinalIgnoreCase))
             {
-                Cache[key] = (null, DateTime.UtcNow.AddMinutes(30));
+                Cache[key] = (null, DateTime.UtcNow.AddHours(1));
                 return null;
             }
 
-            var street = json.Address.Road ?? json.Address.Pedestrian ?? json.Address.Path ?? "Unknown street";
+            var street = json.Address.Road ?? json.Address.Pedestrian ?? json.Address.Path;
             var number = json.Address.HouseNumber;
-            var addressLine = string.IsNullOrWhiteSpace(number) ? street : $"{street} {number}";
+            string addressLine;
+            if (!string.IsNullOrWhiteSpace(street))
+                addressLine = string.IsNullOrWhiteSpace(number) ? street : $"{street} {number}";
+            else
+                addressLine = $"Point {lat:F5}, {lon:F5}";
+
             var cityName = json.Address.City ?? json.Address.Town ?? json.Address.Village ?? json.Address.Municipality;
 
             var result = new GeocodeResult(addressLine, cityName, lat, lon);

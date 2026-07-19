@@ -18,7 +18,9 @@ public static class CityEndpoints
             if (user.EnsureOwner(config) is { } err) return err;
             var cities = await db.Cities.AsNoTracking()
                 .OrderBy(c => c.Name)
-                .Select(c => new CityDto(c.CityId, c.Name, c.Voivodeship, c.CenterLat, c.CenterLon, c.OfficialCode))
+                .Select(c => new CityDto(
+                    c.CityId, c.Name, c.Voivodeship, c.CenterLat, c.CenterLon, c.OfficialCode,
+                    c.Districts.Count))
                 .ToListAsync();
             return Results.Ok(cities);
         });
@@ -28,7 +30,9 @@ public static class CityEndpoints
             if (user.EnsureOwner(config) is { } err) return err;
             var city = await db.Cities.AsNoTracking()
                 .Where(c => c.CityId == cityId)
-                .Select(c => new CityDto(c.CityId, c.Name, c.Voivodeship, c.CenterLat, c.CenterLon, c.OfficialCode))
+                .Select(c => new CityDto(
+                    c.CityId, c.Name, c.Voivodeship, c.CenterLat, c.CenterLon, c.OfficialCode,
+                    c.Districts.Count))
                 .FirstOrDefaultAsync();
             return city is null ? Results.NotFound() : Results.Ok(city);
         });

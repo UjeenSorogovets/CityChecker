@@ -47,9 +47,9 @@ public static class BuildingEndpoints
             if (body.Lat is < 49 or > 55 || body.Lon is < 14 or > 25)
                 return Results.BadRequest(new { error = "Coordinates must be within Poland bounds." });
 
-            var building = await buildings.ReverseGeocodeAsync(body.Lat, body.Lon);
+            var (building, error) = await buildings.ReverseGeocodeAsync(body.Lat, body.Lon);
             return building is null
-                ? Results.NotFound(new { error = "Could not reverse-geocode to a known Polish city." })
+                ? Results.NotFound(new { error = error ?? "Could not create building at this location." })
                 : Results.Ok(building);
         }).RequireAuthorization();
     }

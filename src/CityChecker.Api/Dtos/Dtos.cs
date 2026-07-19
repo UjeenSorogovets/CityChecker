@@ -2,7 +2,14 @@ using CityChecker.Api.Data.Entities;
 
 namespace CityChecker.Api.Dtos;
 
-public record CityDto(Guid CityId, string Name, string Voivodeship, double CenterLat, double CenterLon, string? OfficialCode);
+public record CityDto(Guid CityId, string Name, string Voivodeship, double CenterLat, double CenterLon, string? OfficialCode, int DistrictCount);
+
+public record IdAggregateDto(Guid Id, double? ScoreOverall, double? ScoreNature, double? ScoreShops, double? ScoreTransport, double? ScoreSafety, int NoteCount);
+
+public record CityAggregatesDto(
+    AggregateDto City,
+    IReadOnlyList<IdAggregateDto> Districts,
+    IReadOnlyList<IdAggregateDto> Buildings);
 
 public record DistrictListDto(
     Guid DistrictId,
