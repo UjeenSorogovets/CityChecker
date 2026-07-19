@@ -9,6 +9,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<District> Districts => Set<District>();
     public DbSet<Building> Buildings => Set<Building>();
     public DbSet<Note> Notes => Set<Note>();
+    public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<DistrictImportRaw> DistrictsImportRaw => Set<DistrictImportRaw>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -54,6 +55,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(x => new { x.CityId, x.AddressLine });
             e.HasIndex(x => new { x.Lat, x.Lon });
+        });
+
+        modelBuilder.Entity<AppUser>(e =>
+        {
+            e.HasKey(x => x.UserId);
+            e.Property(x => x.Email).HasMaxLength(320).IsRequired();
+            e.Property(x => x.PasswordHash).HasMaxLength(200).IsRequired();
+            e.HasIndex(x => x.Email).IsUnique();
         });
 
         modelBuilder.Entity<Note>(e =>

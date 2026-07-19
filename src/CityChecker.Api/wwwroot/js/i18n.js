@@ -1,7 +1,12 @@
 export const i18n = {
   en: {
     appTitle: "Poland City Comfort Mapper",
-    signInHint: "Sign in with Google to manage your city comfort notes.",
+    signInHint: "Sign in to manage your city comfort notes.",
+    signIn: "Sign in",
+    signUp: "Sign up",
+    email: "Email",
+    password: "Password",
+    orGoogle: "or continue with Google",
     signOut: "Sign out",
     selectPlace: "Select a place on the map",
     addNote: "Add note",
@@ -29,7 +34,12 @@ export const i18n = {
   },
   ru: {
     appTitle: "Карта комфорта городов Польши",
-    signInHint: "Войдите через Google, чтобы вести заметки о комфорте городов.",
+    signInHint: "Войдите, чтобы вести заметки о комфорте городов.",
+    signIn: "Войти",
+    signUp: "Регистрация",
+    email: "Email",
+    password: "Пароль",
+    orGoogle: "или через Google",
     signOut: "Выйти",
     selectPlace: "Выберите место на карте",
     addNote: "Добавить заметку",

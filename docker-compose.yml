@@ -24,6 +24,7 @@ services:
       ConnectionStrings__Default: Host=db;Port=5432;Database=citychecker;Username=citychecker;Password=citychecker
       Google__ClientId: ${GOOGLE_CLIENT_ID:-YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com}
       Google__AllowedUserId: ${GOOGLE_ALLOWED_USER_ID:-YOUR_GOOGLE_SUB}
+      Auth__JwtSecret: ${AUTH_JWT_SECRET:-}
       Nominatim__UserAgent: CityChecker/1.0 (personal; ${CONTACT_EMAIL:-dev@example.com})
       Import__LodzDistrictsCsvPath: /app/DataImports/Granice osiedli.csv
       Import__LodzDistrictsPolygonsPath: /app/DataImports/lodz-osiedla-polygons.json

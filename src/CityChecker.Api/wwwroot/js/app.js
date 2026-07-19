@@ -84,6 +84,7 @@ async function initAuth() {
   applyI18n();
   const cfg = await fetch("/api/config").then((r) => r.json());
   const clientId = cfg.googleClientId;
+  let mode = "signin"; // or signup
 
   if (requireAuthOrGate()) {
     try {
@@ -103,27 +104,87 @@ async function initAuth() {
     els.authError.classList.remove("hidden");
   }
 
-  window.google.accounts.id.initialize({
-    client_id: clientId,
-    callback: async (response) => {
-      setToken(response.credential);
-      sessionStorage.setItem("cc_had_token", "1");
-      try {
-        await api("/api/cities");
-        showApp();
-      } catch (err) {
-        showAuthError(err);
-        clearToken();
-      }
-    },
-  });
+  const tabSignIn = document.getElementById("tab-signin");
+  const tabSignUp = document.getElementById("tab-signup");
+  const submitBtn = document.getElementById("auth-submit");
+  const passwordInput = document.getElementById("login-password");
 
-  window.google.accounts.id.renderButton(document.getElementById("google-btn"), {
-    theme: "outline",
-    size: "large",
-    width: 280,
-  });
+  function setMode(next) {
+    mode = next;
+    tabSignIn.classList.toggle("active", mode === "signin");
+    tabSignUp.classList.toggle("active", mode === "signup");
+    submitBtn.textContent = t(mode === "signin" ? "signIn" : "signUp");
+    passwordInput.autocomplete = mode === "signin" ? "current-password" : "new-password";
+    els.authError.classList.add("hidden");
+  }
+  tabSignIn.onclick = () => setMode("signin");
+  tabSignUp.onclick = () => setMode("signup");
+
+  document.getElementById("password-form").onsubmit = async (e) => {
+    e.preventDefault();
+    els.authError.classList.add("hidden");
+    const path = mode === "signup" ? "/api/auth/register" : "/api/auth/login";
+    try {
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: document.getElementById("login-email").value,
+          password: passwordInput.value,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw { message: body.error || t("authFailed"), status: res.status, body };
+      setToken(body.token);
+      sessionStorage.setItem("cc_had_token", "1");
+      await api("/api/cities");
+      showApp();
+    } catch (err) {
+      showAuthError(err);
+      clearToken();
+    }
+  };
+
+  const canGoogle = clientId && !String(clientId).includes("YOUR_GOOGLE") && window.google?.accounts?.id;
+  const orEl = document.getElementById("auth-or");
+  if (canGoogle) {
+    if (orEl) orEl.classList.remove("hidden");
+    window.google.accounts.id.initialize({
+      client_id: clientId,
+      callback: async (response) => {
+        setToken(response.credential);
+        sessionStorage.setItem("cc_had_token", "1");
+        try {
+          await api("/api/cities");
+          showApp();
+        } catch (err) {
+          showAuthError(err);
+          clearToken();
+        }
+      },
+    });
+    window.google.accounts.id.renderButton(document.getElementById("google-btn"), {
+      theme: "outline",
+      size: "large",
+      width: 280,
+    });
+  }
 }
+
+function bootAuth() {
+  // Email/password always available; Google script is optional.
+  if (window.google?.accounts?.id) {
+    initAuth();
+    return;
+  }
+  let tries = 0;
+  const tick = () => {
+    if (window.google?.accounts?.id || tries++ > 40) initAuth();
+    else setTimeout(tick, 50);
+  };
+  tick();
+}
+bootAuth();
 
 function showAuthError(err) {
   els.authGate.classList.remove("hidden");
@@ -593,8 +654,3 @@ document.getElementById("sheet-handle").addEventListener("click", () => {
   els.sheet.classList.toggle("expanded");
 });
 
-function waitGoogle() {
-  if (window.google?.accounts?.id) initAuth();
-  else setTimeout(waitGoogle, 50);
-}
-waitGoogle();

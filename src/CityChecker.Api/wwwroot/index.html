@@ -13,7 +13,23 @@
   <div id="auth-gate" class="auth-gate">
     <div class="auth-card">
       <h1 data-i18n="appTitle">Poland City Comfort Mapper</h1>
-      <p data-i18n="signInHint">Sign in with Google to manage your city comfort notes.</p>
+      <p data-i18n="signInHint">Sign in to manage your city comfort notes.</p>
+      <div class="auth-tabs" role="tablist">
+        <button type="button" id="tab-signin" class="auth-tab active" data-i18n="signIn">Sign in</button>
+        <button type="button" id="tab-signup" class="auth-tab" data-i18n="signUp">Sign up</button>
+      </div>
+      <form id="password-form" class="password-form">
+        <label>
+          <span data-i18n="email">Email</span>
+          <input id="login-email" name="email" type="email" autocomplete="email" required />
+        </label>
+        <label>
+          <span data-i18n="password">Password</span>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required minlength="8" />
+        </label>
+        <button type="submit" class="btn primary" id="auth-submit" data-i18n="signIn">Sign in</button>
+      </form>
+      <p id="auth-or" class="auth-or hidden" data-i18n="orGoogle">or continue with Google</p>
       <div id="google-btn"></div>
       <p id="auth-error" class="error hidden"></p>
     </div>

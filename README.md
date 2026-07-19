@@ -20,7 +20,7 @@ Optional: regenerate OSM polygon cache with `python DataImports/_fetch_osiedla_p
 
 ## Quick start (Docker + PostGIS)
 
-1. Copy `.env.example` → `.env` and set Google Client ID + your Google `sub`.
+1. Copy `.env.example` → `.env`. Optionally set `AUTH_JWT_SECRET` (and Google Client ID if you use Google later).
 2. Ensure `DataImports/Granice osiedli.csv` and `DataImports/lodz-osiedla-polygons.json` exist (CSV is downloaded from the open-data portal; polygons are already generated).
 3. **Recreate DB volume** (required once when switching to PostGIS):
 
@@ -29,13 +29,13 @@ docker-compose down -v
 docker-compose up --build
 ```
 
-4. Open http://localhost:8080 — sign in. On first boot the API auto-imports 36 Łódź osiedla when `Districts` is empty.
+4. Open http://localhost:8080 — **Sign up** with email/password (works on plain `http://IP:8080`). Google Sign-In still needs `https://` + a domain. On first boot the API auto-imports 36 Łódź osiedla when `Districts` is empty.
 
 Re-run import manually (after sign-in, with Bearer token):
 
 ```http
 POST /api/admin/import/lodz-districts
-Authorization: Bearer <google-id-token>
+Authorization: Bearer <token>
 ```
 
 ## Local development
@@ -46,9 +46,9 @@ docker-compose up db -d
 dotnet run --project src/CityChecker.Api
 ```
 
-Authorized JS origin: `http://localhost:5097` (and/or `http://localhost:8080` for Docker).
+Authorized JS origin (Google only): `http://localhost:5097` (and/or `http://localhost:8080` for Docker).
 
-## API (auth required except `/api/config`)
+## API (auth required except `/api/config`, `POST /api/auth/register`, `POST /api/auth/login`)
 
 | Method | Path | Notes |
 |--------|------|--------|

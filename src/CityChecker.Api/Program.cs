@@ -1,4 +1,6 @@
+using System.Text;
 using System.Text.Json.Serialization;
+using CityChecker.Api.Auth;
 using CityChecker.Api.Data;
 using CityChecker.Api.Endpoints;
 using CityChecker.Api.Services;
@@ -27,8 +29,39 @@ builder.Services.AddScoped<LodzDistrictImportService>();
 builder.Services.AddScoped<PolygonDistrictImportService>();
 
 var googleClientId = builder.Configuration["Google:ClientId"] ?? "";
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+const string googleScheme = "Google";
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = "Bearer";
+        options.DefaultChallengeScheme = "Bearer";
+    })
+    .AddPolicyScheme("Bearer", "Bearer", options =>
+    {
+        options.ForwardDefaultSelector = ctx =>
+        {
+            var header = ctx.Request.Headers.Authorization.ToString();
+            if (header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                var jwt = header["Bearer ".Length..].Trim();
+                var payload = jwt.Split('.').ElementAtOrDefault(1);
+                if (payload is not null)
+                {
+                    try
+                    {
+                        var json = Encoding.UTF8.GetString(PasswordAuth.Base64UrlDecode(payload));
+                        if (json.Contains("accounts.google.com", StringComparison.Ordinal))
+                            return googleScheme;
+                    }
+                    catch
+                    {
+                        // fall through to local
+                    }
+                }
+            }
+            return PasswordAuth.Scheme;
+        };
+    })
+    .AddJwtBearer(googleScheme, options =>
     {
         options.Authority = "https://accounts.google.com";
         options.TokenValidationParameters = new TokenValidationParameters
@@ -40,13 +73,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             NameClaimType = "sub"
         };
+    })
+    .AddJwtBearer(PasswordAuth.Scheme, options =>
+    {
+        options.TokenValidationParameters = PasswordAuth.ValidationParameters(builder.Configuration);
     });
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
+{
     GeoHelper.SelfCheck();
+    PasswordAuth.SelfCheck();
+}
 
 using (var scope = app.Services.CreateScope())
 {
@@ -93,9 +133,10 @@ app.UseAuthorization();
 
 app.MapGet("/api/config", (IConfiguration config) => Results.Ok(new
 {
-    googleClientId = config["Google:ClientId"]
+    googleClientId = config["Google:ClientId"],
 }));
 
+app.MapAuthEndpoints();
 app.MapCityEndpoints();
 app.MapDistrictEndpoints();
 app.MapBuildingEndpoints();
