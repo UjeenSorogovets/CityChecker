@@ -53,6 +53,8 @@ export async function enrichDistrictSheet(districtId, container) {
     <button type="button" class="btn ghost" data-act="probe">${t("probeAmenities")}</button>
     <button type="button" class="btn ghost" data-act="visit">${t("logVisit")}</button>
     <button type="button" class="btn ghost" data-act="offer">${t("addOfferHere")}</button>
+    <button type="button" class="btn ghost" data-act="reminder">${t("setReminder")}</button>
+    <button type="button" class="btn ghost" data-act="risk">${t("riskNotes")}</button>
   `;
   bar.querySelector("[data-act=shortlist]").onclick = () => setPick(districtId, "Shortlist");
   bar.querySelector("[data-act=veto]").onclick = () => {
@@ -68,6 +70,46 @@ export async function enrichDistrictSheet(districtId, container) {
   bar.querySelector("[data-act=visit]").onclick = () => openVisitDialog(districtId);
   bar.querySelector("[data-act=offer]").onclick = () =>
     openOfferAt({ districtId, title: ctx.getContext?.()?.title });
+  bar.querySelector("[data-act=reminder]").onclick = async () => {
+    const when = prompt(t("reminderWhen"), new Date(Date.now() + 86400000).toISOString().slice(0, 16));
+    if (!when) return;
+    const note = prompt(t("reminderNote"), "Revisit evening") || "";
+    try {
+      const picks = await api("/api/housing/picks");
+      const cur = picks.find((p) => p.districtId === districtId);
+      await api(`/api/housing/picks/${districtId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          status: cur?.status ?? "Exploring",
+          vetoReason: cur?.vetoReason ?? null,
+          quietScore: cur?.quietScore ?? null,
+          riskNotes: cur?.riskNotes ?? null,
+          reminderAt: new Date(when).toISOString(),
+          reminderNote: note,
+        }),
+      });
+      alert(t("reminderSaved"));
+    } catch (e) { alertErr(e); }
+  };
+  bar.querySelector("[data-act=risk]").onclick = async () => {
+    const picks = await api("/api/housing/picks");
+    const cur = picks.find((p) => p.districtId === districtId);
+    const risk = prompt(t("riskNotesPrompt"), cur?.riskNotes || "") || "";
+    try {
+      await api(`/api/housing/picks/${districtId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          status: cur?.status ?? "Exploring",
+          vetoReason: cur?.vetoReason ?? null,
+          quietScore: cur?.quietScore ?? null,
+          reminderAt: cur?.reminderAt ?? null,
+          reminderNote: cur?.reminderNote ?? null,
+          riskNotes: risk,
+        }),
+      });
+      alert(t("riskSaved"));
+    } catch (e) { alertErr(e); }
+  };
   container.appendChild(bar);
 }
 
@@ -99,8 +141,9 @@ function wireUi() {
   document.getElementById("housing-save-weights")?.addEventListener("click", saveProfile);
   document.getElementById("housing-add-offer")?.addEventListener("click", () => openOfferDialog({}));
 
-  document.getElementById("filter-shortlist")?.addEventListener("change", (e) => {
+  document.getElementById("filter-shortlist")?.addEventListener("change", async (e) => {
     filterState.shortlistOnly = e.target.checked;
+    await syncMapFilter();
   });
   document.getElementById("filter-minscore")?.addEventListener("change", (e) => {
     filterState.minScore = Number(e.target.value) || 0;
@@ -108,6 +151,22 @@ function wireUi() {
   document.getElementById("filter-maxcommute")?.addEventListener("change", (e) => {
     filterState.maxCommute = Number(e.target.value) || 0;
   });
+  document.getElementById("filter-has-offers")?.addEventListener("change", async (e) => {
+    filterState.hasOffers = e.target.checked;
+    await refreshOffers();
+  });
+}
+
+async function syncMapFilter() {
+  if (!ctx?.onMapFilterChange) return;
+  if (!filterState.shortlistOnly) {
+    ctx.onMapFilterChange(null);
+    return;
+  }
+  const cityId = ctx.getActiveCityId?.();
+  const picks = await api(`/api/housing/picks${cityId ? `?cityId=${cityId}` : ""}`);
+  const ids = picks.filter((p) => p.status === "Shortlist").map((p) => p.districtId);
+  ctx.onMapFilterChange(ids);
 }
 
 async function refreshAnchors() {
@@ -222,10 +281,14 @@ function openOfferDialog(seed = {}) {
   const media = numPrompt(t("offerMedia"), null);
   const czynsz = numPrompt(t("offerCzynsz"), null);
   const deal = numPrompt(t("offerDealOverall"), 7);
+  const scoreLayout = numPrompt(t("scoreLayout"), deal);
+  const scoreLight = numPrompt(t("scoreLight"), deal);
+  const scoreCondition = numPrompt(t("scoreCondition"), deal);
   const flaw = prompt(t("offerKillerFlaw"), "") || null;
   const photos = prompt(t("offerPhotos"), "") || null;
   const voice = prompt(t("offerVoice"), "") || null;
   const finalist = confirm(t("offerFinalist"));
+  const reminderWhen = prompt(t("reminderWhenOptional"), "") || null;
 
   const c = ctx?.getContext?.() || {};
   const center = ctx.map.getCenter();
@@ -244,15 +307,22 @@ function openOfferDialog(seed = {}) {
     media,
     czynsz,
     scorePrice: deal,
-    scoreLayout: deal,
-    scoreLight: deal,
-    scoreCondition: deal,
+    scoreLayout: scoreLayout ?? deal,
+    scoreLight: scoreLight ?? deal,
+    scoreCondition: scoreCondition ?? deal,
     killerFlaw: flaw,
     photoUrls: photos,
     voiceNoteUrl: voice,
     isFinalist: finalist,
+    reminderAt: reminderWhen ? new Date(reminderWhen).toISOString() : null,
     hasKsiega: mode === "Buy" ? confirm(t("offerKsiega")) : null,
+    hasSluzebnosc: mode === "Buy" ? confirm(t("offerSluzebnosc")) : null,
+    hasSpoldzielniaDebt: mode === "Buy" ? confirm(t("offerSpoldzielnia")) : null,
+    deposit: mode === "Rent" ? numPrompt(t("offerDeposit"), null) : null,
+    noticeDays: mode === "Rent" ? numPrompt(t("offerNoticeDays"), null) : null,
     furnished: mode === "Rent" ? confirm(t("offerFurnished")) : null,
+    pricePerSqm: mode === "Buy" && price && sqm ? Math.round((price / sqm) * 100) / 100 : null,
+    renovationBudget: mode === "Buy" ? numPrompt(t("offerRenovation"), null) : null,
   };
   api("/api/housing/offers", { method: "POST", body: JSON.stringify(body) })
     .then(() => { refreshOffers(); refreshOffersList(); })
@@ -264,7 +334,7 @@ async function refreshOffers() {
   offerLayer.clearLayers();
   const list = await api("/api/housing/offers");
   for (const o of list) {
-    if (filterState.hasOffers === false) { /* still show all markers */ }
+    if (filterState.hasOffers && !o.url && o.price == null) continue;
     const m = L.circleMarker([o.lat, o.lon], {
       radius: o.isFinalist ? 9 : 6,
       color: o.mode === "Buy" ? "#0d6e6e" : "#3a5fb3",
@@ -275,7 +345,8 @@ async function refreshOffers() {
     m.bindTooltip(`${o.title} (${o.monthlyTotal != null ? o.monthlyTotal + " zł/mo" : o.price ?? "—"})`);
     m.on("click", (e) => {
       L.DomEvent.stopPropagation(e);
-      alert(`${o.title}\n${o.url || ""}\n${t("dealAvg")}: ${o.dealAvg ?? "—"}\n${t("monthlyTotal")}: ${o.monthlyTotal ?? "—"}`);
+      const rem = o.reminderAt ? `\n${t("setReminder")}: ${o.reminderAt}` : "";
+      alert(`${o.title}\n${o.url || ""}\n${t("dealAvg")}: ${o.dealAvg ?? "—"}\n${t("monthlyTotal")}: ${o.monthlyTotal ?? "—"}${rem}`);
     });
     offerLayer.addLayer(m);
   }

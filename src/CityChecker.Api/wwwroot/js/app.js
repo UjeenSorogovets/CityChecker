@@ -247,6 +247,10 @@ function initMap() {
     map,
     getActiveCityId: () => activeCityId,
     getContext: () => context,
+    onMapFilterChange: (ids) => {
+      mapShortlistIds = ids ? new Set(ids.map(String)) : null;
+      applyDistrictStyles();
+    },
   });
 }
 
@@ -316,11 +320,27 @@ function districtIdOf(feature) {
   return feature?.properties?.districtId || feature?.properties?.id || null;
 }
 
+/** @type {Set<string>|null} */
+let mapShortlistIds = null;
+
 function districtBaseStyle(feature, interactive) {
   const id = districtIdOf(feature);
   const selected = selectedDistrictId != null && id === selectedDistrictId;
   const dimOthers = selectedDistrictId != null && !selected;
+  const filteredOut = mapShortlistIds != null && id != null && !mapShortlistIds.has(String(id));
   const score = feature?.properties?.score;
+
+  if (filteredOut) {
+    return {
+      color: "#b0bec5",
+      weight: 0.8,
+      fillColor: scoreColor(score),
+      fillOpacity: 0.06,
+      opacity: 0.25,
+      lineJoin: "round",
+      className: "district-poly district-filtered-out",
+    };
+  }
 
   if (selected) {
     return {
