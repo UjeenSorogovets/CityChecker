@@ -20,6 +20,8 @@ let buildingLayer = L.layerGroup();
 
 let cities = [];
 let activeCityId = null;
+/** @type {string|null} */
+let selectedDistrictId = null;
 let context = null;
 let editingNoteId = null;
 /** @type {AbortController | null} */
@@ -300,16 +302,51 @@ async function onZoomOrMove() {
 }
 
 function setDistrictInteractive(interactive) {
+  applyDistrictStyles(interactive);
+}
+
+function districtIdOf(feature) {
+  return feature?.properties?.districtId || feature?.properties?.id || null;
+}
+
+function districtBaseStyle(feature, interactive) {
+  const id = districtIdOf(feature);
+  const selected = selectedDistrictId != null && id === selectedDistrictId;
+  const dimOthers = selectedDistrictId != null && !selected;
+  const score = feature?.properties?.score;
+
+  if (selected) {
+    return {
+      color: "#0a5c5c",
+      weight: 3.5,
+      fillColor: scoreColor(score),
+      fillOpacity: 0.62,
+      opacity: 1,
+      lineJoin: "round",
+      lineCap: "round",
+      className: "district-poly district-selected",
+    };
+  }
+
+  return {
+    color: dimOthers ? "#7a8f99" : "#1a2b33",
+    weight: interactive ? 1.4 : 1,
+    fillColor: scoreColor(score),
+    fillOpacity: interactive ? (dimOthers ? 0.2 : 0.42) : 0.14,
+    opacity: dimOthers ? 0.5 : 0.9,
+    lineJoin: "round",
+    lineCap: "round",
+    className: "district-poly",
+  };
+}
+
+function applyDistrictStyles(interactive = currentMode(map?.getZoom?.() ?? 0) === "district") {
   if (!districtLayer) return;
   districtLayer.eachLayer((layer) => {
     const el = layer.getElement?.() || layer._path;
     if (el) el.style.pointerEvents = interactive ? "auto" : "none";
-    if (layer.setStyle) {
-      layer.setStyle({
-        fillOpacity: interactive ? 0.45 : 0.18,
-        weight: interactive ? 1.5 : 1,
-      });
-    }
+    layer.setStyle(districtBaseStyle(layer.feature, interactive));
+    if (districtIdOf(layer.feature) === selectedDistrictId) layer.bringToFront();
   });
 }
 
@@ -332,6 +369,7 @@ function clearDistricts() {
     districtLayer = null;
   }
   activeCityId = null;
+  selectedDistrictId = null;
   districtScores = {};
   buildingScores = {};
 }
@@ -375,24 +413,17 @@ async function loadDistricts(cityId) {
   }
 
   districtLayer = L.geoJSON(fc, {
-    style: (f) => ({
-      color: "#1a2b33",
-      weight: 1.5,
-      fillColor: scoreColor(f.properties.score),
-      fillOpacity: 0.45,
-      interactive: currentMode(map.getZoom()) === "district",
-    }),
+    style: (f) => districtBaseStyle(f, currentMode(map.getZoom()) === "district"),
     onEachFeature: (feature, layer) => {
-      const name = feature.properties.name || "";
-      layer.bindTooltip(name);
-      // ponytail: no Leaflet popup — bottom sheet is the detail UI; popups fight taps on mobile.
+      // Sheet shows the name — Leaflet tooltip is a floating rectangle and fights mobile taps.
       layer.on("mouseover", () => {
         if (currentMode(map.getZoom()) !== "district") return;
-        layer.setStyle({ weight: 3, fillOpacity: 0.65 });
+        if (districtIdOf(feature) === selectedDistrictId) return;
+        layer.setStyle({ weight: 2.5, fillOpacity: 0.58, color: "#0d6e6e" });
+        layer.bringToFront();
       });
       layer.on("mouseout", () => {
-        districtLayer.resetStyle(layer);
-        setDistrictInteractive(currentMode(map.getZoom()) === "district");
+        applyDistrictStyles();
       });
       layer.on("click", (e) => {
         if (currentMode(map.getZoom()) !== "district") return;
@@ -402,7 +433,7 @@ async function loadDistricts(cityId) {
     },
   }).addTo(map);
 
-  setDistrictInteractive(currentMode(map.getZoom()) === "district");
+  applyDistrictStyles();
   // Do not fitBounds here: on a short mobile viewport it can zoom out past ZOOM_CITY,
   // clear districts, reload, and loop. City tap already setView()'d into the band.
 }
@@ -413,9 +444,8 @@ async function reloadDistrictColors() {
   districtLayer.eachLayer((layer) => {
     const id = layer.feature?.properties?.id;
     if (id) layer.feature.properties.score = districtScores[id] ?? null;
-    districtLayer.resetStyle(layer);
   });
-  setDistrictInteractive(currentMode(map.getZoom()) === "district");
+  applyDistrictStyles();
 }
 
 async function loadBuildingMarkers() {
@@ -485,6 +515,8 @@ async function onMapClick(e) {
 }
 
 async function selectCity(city) {
+  selectedDistrictId = null;
+  applyDistrictStyles();
   context = { level: "City", cityId: city.cityId, title: city.name };
   // Enter district zoom band so polygons load
   map.setView([city.centerLat, city.centerLon], ZOOM_INTO_DISTRICT);
@@ -492,16 +524,20 @@ async function selectCity(city) {
 }
 
 async function selectDistrict(d) {
+  selectedDistrictId = d.districtId || d.id || null;
+  applyDistrictStyles();
   context = {
     level: "District",
     cityId: d.cityId || activeCityId,
-    districtId: d.districtId || d.id,
+    districtId: selectedDistrictId,
     title: d.name,
   };
   await refreshSheet();
 }
 
 async function selectBuilding(b) {
+  selectedDistrictId = null;
+  applyDistrictStyles();
   context = {
     level: "Building",
     cityId: b.cityId,

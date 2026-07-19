@@ -93,6 +93,16 @@ body {
 }
 #google-btn { display: flex; justify-content: center; }
 
+/* District polygons: stroke follows real GeoJSON contours */
+.leaflet-overlay-pane path.district-poly {
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  transition: fill-opacity 0.15s ease, stroke-width 0.15s ease, stroke 0.15s ease;
+}
+.leaflet-overlay-pane path.district-selected {
+  filter: drop-shadow(0 0 6px rgba(13, 110, 110, 0.75));
+}
+
 .app {
   height: 100%;
   display: grid;
