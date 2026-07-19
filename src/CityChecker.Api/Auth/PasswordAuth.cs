@@ -97,9 +97,12 @@ public static class PasswordAuth
 
         var userId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var jwt = IssueToken(config, userId, TimeSpan.FromMinutes(5));
-        var principal = new JwtSecurityTokenHandler().ValidateToken(jwt, ValidationParameters(config), out _);
-        if (principal.FindFirstValue("sub") != userId.ToString("D"))
-            throw new InvalidOperationException("PasswordAuth SelfCheck: unexpected sub");
+        var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+        var principal = handler.ValidateToken(jwt, ValidationParameters(config), out _);
+        var sub = principal.FindFirstValue("sub")
+            ?? principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (sub != userId.ToString("D"))
+            throw new InvalidOperationException($"PasswordAuth SelfCheck: unexpected sub '{sub}'");
     }
 
     static byte[] SigningKeyBytes(IConfiguration config)
