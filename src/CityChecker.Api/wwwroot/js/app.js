@@ -20,6 +20,8 @@ let cityLayer = L.layerGroup();
 let districtLayer = null;
 /** @type {L.LayerGroup} */
 let buildingLayer = L.layerGroup();
+/** @type {L.LayerGroup} */
+let pointLayer = L.layerGroup();
 
 let cities = [];
 let activeCityId = null;
@@ -29,6 +31,7 @@ let lockedCityId = null;
 let selectedDistrictId = null;
 let context = null;
 let editingNoteId = null;
+const DEFAULT_POINT_RADIUS = 300;
 /** @type {AbortController | null} */
 let mapAbort = null;
 let moveTimer = null;
@@ -361,6 +364,7 @@ async function enterCity(city, { persist = true } = {}) {
 
   await loadDistricts(city.cityId);
   applyDistrictStyles();
+  await loadPointNotes();
 
   // Picker overlay was covering the map — size/center can be wrong until layout settles.
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -392,6 +396,7 @@ function initMap() {
 
   cityLayer.addTo(map);
   buildingLayer.addTo(map);
+  pointLayer.addTo(map);
 
   map.on("zoomend", scheduleMapUpdate);
   map.on("moveend", scheduleMapUpdate);
@@ -450,12 +455,24 @@ async function onZoomOrMove() {
   }
 
   setDistrictInteractive(mode === "district" || mode === "city");
-  if (mode === "building") await loadBuildingMarkers();
-  else buildingLayer.clearLayers();
+  if (mode === "building") {
+    await loadBuildingMarkers();
+    await loadPointNotes();
+    pointLayer.bringToFront();
+  } else {
+    buildingLayer.clearLayers();
+    await loadPointNotes();
+  }
 }
 
 function setDistrictInteractive(interactive) {
   applyDistrictStyles(interactive);
+  if (!districtLayer) return;
+  // Normal clicks pass through so map can drop point notes; Shift+click selects district (housing).
+  districtLayer.eachLayer((layer) => {
+    const el = layer.getElement?.() || layer._path;
+    if (el) el.style.pointerEvents = interactive ? "auto" : "none";
+  });
 }
 
 function districtIdOf(feature) {
@@ -537,6 +554,7 @@ function clearDistricts() {
     map.removeLayer(districtLayer);
     districtLayer = null;
   }
+  pointLayer.clearLayers();
   activeCityId = null;
   selectedDistrictId = null;
   districtScores = {};
@@ -584,27 +602,101 @@ async function loadDistricts(cityId) {
   districtLayer = L.geoJSON(fc, {
     style: (f) => districtBaseStyle(f, currentMode(map.getZoom()) === "district"),
     onEachFeature: (feature, layer) => {
-      // Sheet shows the name — Leaflet tooltip is a floating rectangle and fights mobile taps.
-      layer.on("mouseover", () => {
-        if (currentMode(map.getZoom()) !== "district") return;
-        if (districtIdOf(feature) === selectedDistrictId) return;
-        layer.setStyle({ weight: 2.5, fillOpacity: 0.58, color: "#0d6e6e" });
-        layer.bringToFront();
-      });
-      layer.on("mouseout", () => {
-        applyDistrictStyles();
-      });
       layer.on("click", (e) => {
-        if (currentMode(map.getZoom()) !== "district") return;
+        if (!lockedCityId) return;
         L.DomEvent.stopPropagation(e);
-        selectDistrict(feature.properties);
+        // Shift+click: housing / district sheet (avg + points). Plain click: drop point note.
+        if (e.originalEvent?.shiftKey) {
+          selectDistrict(feature.properties);
+        } else {
+          selectMapPoint(e.latlng);
+        }
       });
     },
   }).addTo(map);
 
   applyDistrictStyles();
+  pointLayer.bringToFront();
   // Do not fitBounds here: on a short mobile viewport it can zoom out past ZOOM_CITY,
   // clear districts, reload, and loop. City tap already setView()'d into the band.
+}
+
+async function loadPointNotes() {
+  if (!lockedCityId && !activeCityId) return;
+  const cityId = lockedCityId || activeCityId;
+  try {
+    const notes = await api(`/api/notes?cityId=${cityId}&level=Point`);
+    pointLayer.clearLayers();
+    for (const n of notes) {
+      if (n.lat == null || n.lon == null) continue;
+      const color = scoreColor(n.scoreOverall);
+      const radius = n.radiusMeters || DEFAULT_POINT_RADIUS;
+      const circle = L.circle([n.lat, n.lon], {
+        radius,
+        color,
+        fillColor: color,
+        fillOpacity: 0.25,
+        weight: 1.5,
+        opacity: 0.85,
+        interactive: false, // coverage only — clicks pass through so new points can be placed inside
+      });
+      pointLayer.addLayer(circle);
+      const dot = L.circleMarker([n.lat, n.lon], {
+        radius: 5,
+        color: "#1a2b33",
+        fillColor: color,
+        fillOpacity: 1,
+        weight: 1,
+      });
+      dot.on("click", (e) => {
+        L.DomEvent.stopPropagation(e);
+        openPointNote(n);
+      });
+      pointLayer.addLayer(dot);
+    }
+  } catch (err) {
+    if (err.status === 401) showAuthError({ message: t("sessionExpired") });
+  }
+}
+
+async function openPointNote(n) {
+  context = {
+    level: "Point",
+    cityId: n.targetCityId || lockedCityId || activeCityId,
+    districtId: n.targetDistrictId ?? null,
+    lat: n.lat,
+    lon: n.lon,
+    radiusMeters: n.radiusMeters || DEFAULT_POINT_RADIUS,
+    title: t("pointNote"),
+  };
+  document.getElementById("housing-district-slot").innerHTML = "";
+  if (n.targetDistrictId) {
+    selectedDistrictId = n.targetDistrictId;
+    applyDistrictStyles();
+    await enrichDistrictSheet(n.targetDistrictId, document.getElementById("housing-district-slot"));
+  }
+  await refreshSheet();
+  openNoteForm(n);
+}
+
+async function selectMapPoint(latlng) {
+  selectedDistrictId = null;
+  applyDistrictStyles();
+  context = {
+    level: "Point",
+    cityId: lockedCityId || activeCityId,
+    districtId: null,
+    lat: latlng.lat,
+    lon: latlng.lng,
+    radiusMeters: DEFAULT_POINT_RADIUS,
+    title: `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`,
+  };
+  document.getElementById("housing-district-slot").innerHTML = "";
+  els.sheetTitle.textContent = context.title;
+  els.addNoteBtn.classList.remove("hidden");
+  els.sheetMeta.textContent = "";
+  els.notesList.innerHTML = `<li class="empty-notes">${t("dropPoint")}</li>`;
+  openNoteForm();
 }
 
 async function reloadDistrictColors() {
@@ -662,7 +754,9 @@ async function onMapClick(e) {
   }
   if (housingMapClick(e.latlng)) return;
   const mode = currentMode(map.getZoom());
-  if (mode === "building") {
+  // Locked city: empty-map click always drops a point (incl. building zoom).
+  // Building notes: click a building marker. Shift+click: reverse-geocode building.
+  if (lockedCityId && e.originalEvent?.shiftKey && mode === "building") {
     els.sheetTitle.textContent = t("loading");
     try {
       const building = await api("/api/buildings/reverse-geocode", {
@@ -678,7 +772,13 @@ async function onMapClick(e) {
       els.addNoteBtn.classList.add("hidden");
       els.notesList.innerHTML = "";
     }
-  } else if (mode === "city" && !lockedCityId) {
+    return;
+  }
+  if (lockedCityId) {
+    await selectMapPoint(e.latlng);
+    return;
+  }
+  if (mode === "city") {
     const city = nearestCity(e.latlng);
     if (city) selectCity(city);
   }
@@ -739,14 +839,20 @@ async function refreshSheet() {
     return;
   }
   els.sheetTitle.textContent = context.title;
-  els.addNoteBtn.classList.remove("hidden");
+  const canAdd = context.level === "City" || context.level === "Point" || context.level === "Building";
+  els.addNoteBtn.classList.toggle("hidden", !canAdd);
   els.notesList.innerHTML = `<li class="empty-notes">${t("loading")}</li>`;
 
   let aggPath = `/api/aggregates/city/${context.cityId}`;
   let notesPath = `/api/notes?cityId=${context.cityId}&level=City`;
   if (context.level === "District") {
     aggPath = `/api/aggregates/district/${context.districtId}`;
-    notesPath = `/api/notes?districtId=${context.districtId}`;
+    notesPath = `/api/notes?districtId=${context.districtId}&level=Point`;
+  } else if (context.level === "Point") {
+    notesPath = `/api/notes?cityId=${context.cityId}&level=Point`;
+    aggPath = context.districtId
+      ? `/api/aggregates/district/${context.districtId}`
+      : `/api/aggregates/city/${context.cityId}`;
   } else if (context.level === "Building") {
     aggPath = `/api/aggregates/building/${context.buildingId}`;
     notesPath = `/api/notes?buildingId=${context.buildingId}`;
@@ -754,22 +860,33 @@ async function refreshSheet() {
 
   try {
     const [agg, notes] = await Promise.all([api(aggPath), api(notesPath)]);
+    let list = notes;
+    if (context.level === "Point" && context.lat != null) {
+      list = notes.filter(
+        (n) =>
+          n.noteId === editingNoteId ||
+          (n.lat != null &&
+            Math.abs(n.lat - context.lat) < 1e-5 &&
+            Math.abs(n.lon - context.lon) < 1e-5)
+      );
+    }
     els.sheetMeta.textContent =
       agg.noteCount > 0 && agg.scoreOverall != null
         ? `${t("avgScore")}: ${agg.scoreOverall.toFixed(1)} (${agg.noteCount})`
         : "";
 
-    if (!notes.length) {
+    if (!list.length) {
       els.notesList.innerHTML = `<li class="empty-notes">${t("noNotes")}</li>`;
       return;
     }
 
     els.notesList.innerHTML = "";
-    for (const n of notes) {
+    for (const n of list) {
       const li = document.createElement("li");
       li.className = "note-card";
+      const radiusMeta = n.radiusMeters != null ? ` · ${n.radiusMeters}m` : "";
       li.innerHTML = `
-        <div><span class="score">${n.scoreOverall}/10</span><span class="meta">${n.level}</span></div>
+        <div><span class="score">${n.scoreOverall}/10</span><span class="meta">${n.level}${radiusMeta}</span></div>
         <p></p>
         <div class="note-actions">
           <button type="button" class="btn ghost edit">${t("editNote")}</button>
@@ -780,7 +897,8 @@ async function refreshSheet() {
       li.querySelector(".del").onclick = async () => {
         await api(`/api/notes/${n.noteId}`, { method: "DELETE" });
         await refreshSheet();
-        if (context.level === "District") await reloadDistrictColors();
+        await reloadDistrictColors();
+        await loadPointNotes();
         if (context.level === "Building") {
           await refreshCityAggregates(activeCityId || context.cityId);
           await loadBuildingMarkers();
@@ -794,8 +912,18 @@ async function refreshSheet() {
   }
 }
 
+/** Coords for the note being created/edited (Point level). */
+let formPointCoords = null;
+
 function openNoteForm(note = null) {
   editingNoteId = note?.noteId ?? null;
+  if (note?.lat != null && note?.lon != null) {
+    formPointCoords = { lat: note.lat, lon: note.lon };
+  } else if (context?.level === "Point" && context.lat != null && context.lon != null) {
+    formPointCoords = { lat: context.lat, lon: context.lon };
+  } else {
+    formPointCoords = null;
+  }
   els.dialogTitle.textContent = note ? t("editNote") : t("addNote");
   els.noteText.value = note?.text ?? "";
   els.scoreOverall.value = note?.scoreOverall ?? 7;
@@ -804,6 +932,13 @@ function openNoteForm(note = null) {
   document.getElementById("score-shops").value = note?.scoreShops ?? "";
   document.getElementById("score-transport").value = note?.scoreTransport ?? "";
   document.getElementById("score-safety").value = note?.scoreSafety ?? "";
+  const radiusWrap = document.getElementById("note-radius-wrap");
+  const radiusInput = document.getElementById("note-radius");
+  const showRadius = formPointCoords != null || note?.level === "Point" || context?.level === "Point";
+  radiusWrap.classList.toggle("hidden", !showRadius);
+  if (showRadius) {
+    radiusInput.value = note?.radiusMeters ?? context?.radiusMeters ?? DEFAULT_POINT_RADIUS;
+  }
   els.dialog.showModal();
 }
 
@@ -823,8 +958,13 @@ document.getElementById("note-cancel").addEventListener("click", () => els.dialo
 els.form.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!context) return;
+  const isPoint =
+    context.level === "Point" ||
+    (formPointCoords != null && (editingNoteId || context.level === "District"));
+  const level = isPoint ? "Point" : context.level;
+  if (level === "District") return; // no whole-district notes
   const body = {
-    level: context.level,
+    level,
     targetCityId: context.cityId,
     targetDistrictId: context.districtId ?? null,
     targetBuildingId: context.buildingId ?? null,
@@ -835,15 +975,32 @@ els.form.addEventListener("submit", async (e) => {
     scoreTransport: optScore("score-transport"),
     scoreSafety: optScore("score-safety"),
   };
+  if (level === "Point") {
+    body.lat = formPointCoords?.lat ?? context.lat;
+    body.lon = formPointCoords?.lon ?? context.lon;
+    if (body.lat == null || body.lon == null) return;
+    const r = Number(document.getElementById("note-radius").value);
+    body.radiusMeters = Number.isFinite(r) ? r : DEFAULT_POINT_RADIUS;
+  }
 
+  let saved;
   if (editingNoteId) {
-    await api(`/api/notes/${editingNoteId}`, { method: "PUT", body: JSON.stringify(body) });
+    saved = await api(`/api/notes/${editingNoteId}`, { method: "PUT", body: JSON.stringify(body) });
   } else {
-    await api("/api/notes", { method: "POST", body: JSON.stringify(body) });
+    saved = await api("/api/notes", { method: "POST", body: JSON.stringify(body) });
   }
   els.dialog.close();
+  editingNoteId = null;
+  formPointCoords = null;
+  if (level === "Point" && saved?.targetDistrictId) {
+    context.districtId = saved.targetDistrictId;
+    selectedDistrictId = saved.targetDistrictId;
+    applyDistrictStyles();
+    await enrichDistrictSheet(saved.targetDistrictId, document.getElementById("housing-district-slot"));
+  }
+  await reloadDistrictColors();
+  await loadPointNotes();
   await refreshSheet();
-  if (context.level === "District") await reloadDistrictColors();
   if (context.level === "Building") {
     await refreshCityAggregates(activeCityId || context.cityId);
     await loadBuildingMarkers();

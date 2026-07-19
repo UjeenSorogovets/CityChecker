@@ -134,6 +134,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(x => x.TargetDistrictId);
             e.HasIndex(x => x.TargetBuildingId);
             e.HasIndex(x => x.AuthorGoogleId);
+            e.HasIndex(x => new { x.Lat, x.Lon });
         });
     }
 }

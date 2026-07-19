@@ -4,11 +4,16 @@ using CityChecker.Api.Data;
 using CityChecker.Api.Data.Entities;
 using CityChecker.Api.Dtos;
 using Microsoft.EntityFrameworkCore;
+using NetTopologySuite.Geometries;
 
 namespace CityChecker.Api.Endpoints;
 
 public static class NoteEndpoints
 {
+    public const int DefaultPointRadiusMeters = 300;
+    public const int MinPointRadiusMeters = 50;
+    public const int MaxPointRadiusMeters = 2000;
+
     public static void MapNoteEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/notes").RequireAuthorization();
@@ -40,7 +45,7 @@ public static class NoteEndpoints
             if (Validate(body) is { } bad) return bad;
 
             var googleId = user.GetGoogleUserId()!;
-            var note = FromWrite(body, googleId);
+            var note = await FromWriteAsync(body, googleId, db);
             note.NoteId = Guid.NewGuid();
             note.CreatedAt = DateTime.UtcNow;
             db.Notes.Add(note);
@@ -59,16 +64,20 @@ public static class NoteEndpoints
             if (!string.Equals(note.AuthorGoogleId, googleId, StringComparison.Ordinal))
                 return Results.Forbid();
 
-            note.Level = body.Level;
-            note.TargetCityId = body.TargetCityId;
-            note.TargetDistrictId = body.TargetDistrictId;
-            note.TargetBuildingId = body.TargetBuildingId;
-            note.Text = body.Text.Trim();
-            note.ScoreOverall = body.ScoreOverall;
-            note.ScoreNature = body.ScoreNature;
-            note.ScoreShops = body.ScoreShops;
-            note.ScoreTransport = body.ScoreTransport;
-            note.ScoreSafety = body.ScoreSafety;
+            var built = await FromWriteAsync(body, googleId, db);
+            note.Level = built.Level;
+            note.TargetCityId = built.TargetCityId;
+            note.TargetDistrictId = built.TargetDistrictId;
+            note.TargetBuildingId = built.TargetBuildingId;
+            note.Lat = built.Lat;
+            note.Lon = built.Lon;
+            note.RadiusMeters = built.RadiusMeters;
+            note.Text = built.Text;
+            note.ScoreOverall = built.ScoreOverall;
+            note.ScoreNature = built.ScoreNature;
+            note.ScoreShops = built.ScoreShops;
+            note.ScoreTransport = built.ScoreTransport;
+            note.ScoreSafety = built.ScoreSafety;
             note.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             return Results.Ok(ToDto(note));
@@ -100,10 +109,14 @@ public static class NoteEndpoints
 
         return body.Level switch
         {
-            NoteLevel.City when body.TargetDistrictId is not null || body.TargetBuildingId is not null
-                => Results.BadRequest(new { error = "City notes must not set district/building." }),
-            NoteLevel.District when body.TargetDistrictId is null
-                => Results.BadRequest(new { error = "District notes require targetDistrictId." }),
+            NoteLevel.City when body.TargetDistrictId is not null || body.TargetBuildingId is not null || body.Lat is not null || body.Lon is not null
+                => Results.BadRequest(new { error = "City notes must not set district/building/coordinates." }),
+            NoteLevel.Point when body.Lat is null || body.Lon is null
+                => Results.BadRequest(new { error = "Point notes require lat and lon." }),
+            NoteLevel.Point when body.Lat is < -90 or > 90 || body.Lon is < -180 or > 180
+                => Results.BadRequest(new { error = "Invalid lat/lon." }),
+            NoteLevel.Point when body.RadiusMeters is not null and (< MinPointRadiusMeters or > MaxPointRadiusMeters)
+                => Results.BadRequest(new { error = $"RadiusMeters must be {MinPointRadiusMeters}–{MaxPointRadiusMeters}." }),
             NoteLevel.Building when body.TargetBuildingId is null
                 => Results.BadRequest(new { error = "Building notes require targetBuildingId." }),
             _ => null
@@ -112,24 +125,52 @@ public static class NoteEndpoints
 
     static bool ScoreOk(int? s) => s is null or (>= 1 and <= 10);
 
-    static Note FromWrite(NoteWriteDto body, string googleId) => new()
+    static async Task<Note> FromWriteAsync(NoteWriteDto body, string googleId, AppDbContext db)
     {
-        AuthorGoogleId = googleId,
-        Level = body.Level,
-        TargetCityId = body.TargetCityId,
-        TargetDistrictId = body.TargetDistrictId,
-        TargetBuildingId = body.TargetBuildingId,
-        Text = body.Text.Trim(),
-        ScoreOverall = body.ScoreOverall,
-        ScoreNature = body.ScoreNature,
-        ScoreShops = body.ScoreShops,
-        ScoreTransport = body.ScoreTransport,
-        ScoreSafety = body.ScoreSafety
-    };
+        Guid? districtId = body.TargetDistrictId;
+        double? lat = null;
+        double? lon = null;
+        int? radius = null;
 
-    // EF projection needs expression-compatible mapper — use after materialize for PUT/POST; for GET use Select
+        if (body.Level == NoteLevel.Point)
+        {
+            lat = body.Lat;
+            lon = body.Lon;
+            radius = body.RadiusMeters ?? DefaultPointRadiusMeters;
+            districtId = await ResolveDistrictAsync(db, body.TargetCityId, lat!.Value, lon!.Value);
+        }
+
+        return new Note
+        {
+            AuthorGoogleId = googleId,
+            Level = body.Level,
+            TargetCityId = body.TargetCityId,
+            TargetDistrictId = body.Level == NoteLevel.Point ? districtId : body.TargetDistrictId,
+            TargetBuildingId = body.Level == NoteLevel.Building ? body.TargetBuildingId : null,
+            Lat = lat,
+            Lon = lon,
+            RadiusMeters = radius,
+            Text = body.Text.Trim(),
+            ScoreOverall = body.ScoreOverall,
+            ScoreNature = body.ScoreNature,
+            ScoreShops = body.ScoreShops,
+            ScoreTransport = body.ScoreTransport,
+            ScoreSafety = body.ScoreSafety
+        };
+    }
+
+    static async Task<Guid?> ResolveDistrictAsync(AppDbContext db, Guid cityId, double lat, double lon)
+    {
+        var point = new Point(lon, lat) { SRID = 4326 };
+        return await db.Districts.AsNoTracking()
+            .Where(d => d.CityId == cityId && d.Geom.Contains(point))
+            .Select(d => (Guid?)d.DistrictId)
+            .FirstOrDefaultAsync();
+    }
+
     static NoteDto ToDto(Note n) => new(
         n.NoteId, n.AuthorGoogleId, n.Level, n.TargetCityId, n.TargetDistrictId, n.TargetBuildingId,
+        n.Lat, n.Lon, n.RadiusMeters,
         n.Text, n.ScoreOverall, n.ScoreNature, n.ScoreShops, n.ScoreTransport, n.ScoreSafety,
         n.CreatedAt, n.UpdatedAt);
 }

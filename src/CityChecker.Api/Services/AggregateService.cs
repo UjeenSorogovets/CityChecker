@@ -15,9 +15,9 @@ public class AggregateService(AppDbContext db)
 
     public async Task<AggregateDto> ForDistrictAsync(Guid districtId, CancellationToken ct = default)
     {
+        // Point notes assigned to this district (coords inside polygon resolved on write)
         var q = db.Notes.AsNoTracking().Where(n =>
-            (n.Level == NoteLevel.District && n.TargetDistrictId == districtId) ||
-            (n.Level == NoteLevel.Building && n.TargetDistrictId == districtId));
+            n.Level == NoteLevel.Point && n.TargetDistrictId == districtId);
         return await AvgAsync(q, ct);
     }
 
@@ -31,10 +31,8 @@ public class AggregateService(AppDbContext db)
     {
         var cityAgg = await ForCityAsync(cityId, ct);
 
-        // District notes + building notes rolled to district
         var districtRows = await db.Notes.AsNoTracking()
-            .Where(n => n.TargetCityId == cityId && n.TargetDistrictId != null &&
-                        (n.Level == NoteLevel.District || n.Level == NoteLevel.Building))
+            .Where(n => n.TargetCityId == cityId && n.Level == NoteLevel.Point && n.TargetDistrictId != null)
             .GroupBy(n => n.TargetDistrictId!.Value)
             .Select(g => new
             {
