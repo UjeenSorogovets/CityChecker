@@ -20,7 +20,6 @@ let buildingLayer = L.layerGroup();
 
 let cities = [];
 let activeCityId = null;
-let fittedForCityId = null;
 let context = null;
 let editingNoteId = null;
 /** @type {AbortController | null} */
@@ -290,9 +289,9 @@ async function onZoomOrMove() {
   }
 
   if (city && city.cityId !== activeCityId) {
-    await loadDistricts(city.cityId, { fit: true });
+    await loadDistricts(city.cityId);
   } else if (city && !districtLayer) {
-    await loadDistricts(city.cityId, { fit: true });
+    await loadDistricts(city.cityId);
   }
 
   setDistrictInteractive(mode === "district");
@@ -333,7 +332,6 @@ function clearDistricts() {
     districtLayer = null;
   }
   activeCityId = null;
-  fittedForCityId = null;
   districtScores = {};
   buildingScores = {};
 }
@@ -347,7 +345,7 @@ async function refreshCityAggregates(cityId, signal) {
   return batch;
 }
 
-async function loadDistricts(cityId, { fit = false } = {}) {
+async function loadDistricts(cityId) {
   if (mapAbort) mapAbort.abort();
   mapAbort = new AbortController();
   const { signal } = mapAbort;
@@ -386,10 +384,8 @@ async function loadDistricts(cityId, { fit = false } = {}) {
     }),
     onEachFeature: (feature, layer) => {
       const name = feature.properties.name || "";
-      const area = feature.properties.areaKm2;
-      const areaTxt = area != null ? `<br>${area} km²` : "";
       layer.bindTooltip(name);
-      layer.bindPopup(`<strong>${name}</strong>${areaTxt}`);
+      // ponytail: no Leaflet popup — bottom sheet is the detail UI; popups fight taps on mobile.
       layer.on("mouseover", () => {
         if (currentMode(map.getZoom()) !== "district") return;
         layer.setStyle({ weight: 3, fillOpacity: 0.65 });
@@ -407,13 +403,8 @@ async function loadDistricts(cityId, { fit = false } = {}) {
   }).addTo(map);
 
   setDistrictInteractive(currentMode(map.getZoom()) === "district");
-
-  if (fit && fittedForCityId !== cityId) {
-    fittedForCityId = cityId;
-    try {
-      map.fitBounds(districtLayer.getBounds(), { padding: [20, 20], maxZoom: 13 });
-    } catch { /* empty */ }
-  }
+  // Do not fitBounds here: on a short mobile viewport it can zoom out past ZOOM_CITY,
+  // clear districts, reload, and loop. City tap already setView()'d into the band.
 }
 
 async function reloadDistrictColors() {
