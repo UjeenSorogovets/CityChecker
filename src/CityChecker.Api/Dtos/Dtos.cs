@@ -4,7 +4,23 @@ namespace CityChecker.Api.Dtos;
 
 public record CityDto(Guid CityId, string Name, string Voivodeship, double CenterLat, double CenterLon, string? OfficialCode);
 
-public record DistrictDto(Guid DistrictId, Guid CityId, string Name, object Geometry, string? OfficialCode);
+public record DistrictListDto(
+    Guid DistrictId,
+    Guid CityId,
+    string Name,
+    string? OfficialCode,
+    string? SourceName,
+    double? AreaKm2);
+
+public record DistrictDetailDto(
+    Guid DistrictId,
+    Guid CityId,
+    string Name,
+    string? OfficialCode,
+    string? SourceName,
+    double? AreaKm2,
+    DateTime CreatedAt,
+    DateTime? UpdatedAt);
 
 public record BuildingDto(Guid BuildingId, Guid CityId, Guid? DistrictId, string AddressLine, double Lat, double Lon);
 

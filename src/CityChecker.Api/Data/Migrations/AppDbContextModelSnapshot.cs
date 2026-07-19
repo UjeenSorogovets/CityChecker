@@ -4,6 +4,7 @@ using CityChecker.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
@@ -20,6 +21,7 @@ namespace CityChecker.Api.Data.Migrations
                 .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "postgis");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("CityChecker.Api.Data.Entities.Building", b =>
@@ -93,12 +95,18 @@ namespace CityChecker.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<double?>("AreaKm2")
+                        .HasColumnType("double precision");
+
                     b.Property<Guid>("CityId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Geometry")
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<MultiPolygon>("Geom")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasColumnType("geometry(MultiPolygon, 4326)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -106,14 +114,52 @@ namespace CityChecker.Api.Data.Migrations
                         .HasColumnType("character varying(200)");
 
                     b.Property<string>("OfficialCode")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SourceName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("DistrictId");
 
-                    b.HasIndex("CityId");
+                    b.HasIndex("Geom");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Geom"), "GIST");
+
+                    b.HasIndex("CityId", "Name");
 
                     b.ToTable("Districts");
+                });
+
+            modelBuilder.Entity("CityChecker.Api.Data.Entities.DistrictImportRaw", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ExtraJson")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("ImportedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Osiedla")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("PunktyGraniczne")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("districts_import_raw", (string)null);
                 });
 
             modelBuilder.Entity("CityChecker.Api.Data.Entities.Note", b =>

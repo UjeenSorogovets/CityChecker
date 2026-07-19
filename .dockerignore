@@ -1,5 +1,6 @@
-# CityChecker
 bin/
 obj/
 **/[Bb]in/
 **/[Oo]bj/
+DataImports/_inspect*.py
+DataImports/__pycache__/

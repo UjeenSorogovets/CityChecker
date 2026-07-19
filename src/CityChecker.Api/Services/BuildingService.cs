@@ -2,11 +2,14 @@ using CityChecker.Api.Data;
 using CityChecker.Api.Data.Entities;
 using CityChecker.Api.Dtos;
 using Microsoft.EntityFrameworkCore;
+using NetTopologySuite.Geometries;
 
 namespace CityChecker.Api.Services;
 
 public class BuildingService(AppDbContext db, NominatimClient nominatim)
 {
+    static readonly GeometryFactory Gf = NetTopologySuite.NtsGeometryServices.Instance.CreateGeometryFactory(srid: 4326);
+
     public async Task<BuildingDto?> ReverseGeocodeAsync(double lat, double lon, CancellationToken ct = default)
     {
         var geo = await nominatim.ReverseAsync(lat, lon, ct);
@@ -25,10 +28,13 @@ public class BuildingService(AppDbContext db, NominatimClient nominatim)
         if (existing is not null)
             return ToDto(existing);
 
-        var districts = await db.Districts.AsNoTracking().Where(d => d.CityId == city.CityId).ToListAsync(ct);
-        Guid? districtId = districts
-            .FirstOrDefault(d => GeoHelper.Contains(d.Geometry, lon, lat))
-            ?.DistrictId;
+        var point = Gf.CreatePoint(new Coordinate(lon, lat));
+        var districts = await db.Districts.AsNoTracking()
+            .Where(d => d.CityId == city.CityId)
+            .Select(d => new { d.DistrictId, d.Geom })
+            .ToListAsync(ct);
+
+        Guid? districtId = districts.FirstOrDefault(d => d.Geom.Contains(point))?.DistrictId;
 
         var building = new Building
         {
@@ -56,7 +62,6 @@ public class BuildingService(AppDbContext db, NominatimClient nominatim)
                 return byName;
         }
 
-        // nearest city within ~40 km
         return cities
             .Select(c => (City: c, Dist: GeoHelper.HaversineKm(lat, lon, c.CenterLat, c.CenterLon)))
             .Where(x => x.Dist < 40)

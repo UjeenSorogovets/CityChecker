@@ -14,12 +14,16 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 });
 
 builder.Services.AddDbContext<AppDbContext>(opt =>
-    opt.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+    opt.UseNpgsql(
+        builder.Configuration.GetConnectionString("Default"),
+        npgsql => npgsql.UseNetTopologySuite()));
 
 builder.Services.Configure<NominatimOptions>(builder.Configuration.GetSection(NominatimOptions.Section));
+builder.Services.Configure<ImportOptions>(builder.Configuration.GetSection(ImportOptions.Section));
 builder.Services.AddHttpClient<NominatimClient>();
 builder.Services.AddScoped<BuildingService>();
 builder.Services.AddScoped<AggregateService>();
+builder.Services.AddScoped<LodzDistrictImportService>();
 
 var googleClientId = builder.Configuration["Google:ClientId"] ?? "";
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -48,6 +52,23 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.MigrateAsync();
     await SeedData.EnsureSeededAsync(db);
+
+    // Auto-import Łódź osiedla when districts are empty and CSV is present
+    if (!await db.Districts.AnyAsync())
+    {
+        try
+        {
+            var importer = scope.ServiceProvider.GetRequiredService<LodzDistrictImportService>();
+            var result = await importer.ImportAsync();
+            app.Logger.LogInformation(
+                "Auto-imported Łódź districts: {Transformed}/{Unique} (skipped {Skipped})",
+                result.Transformed, result.UniqueNames, result.Skipped);
+        }
+        catch (Exception ex)
+        {
+            app.Logger.LogWarning(ex, "Auto-import of Łódź districts skipped");
+        }
+    }
 }
 
 app.UseDefaultFiles();
@@ -56,7 +77,6 @@ app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Config for frontend GIS (client ID only — not a secret)
 app.MapGet("/api/config", (IConfiguration config) => Results.Ok(new
 {
     googleClientId = config["Google:ClientId"]
@@ -67,6 +87,7 @@ app.MapDistrictEndpoints();
 app.MapBuildingEndpoints();
 app.MapNoteEndpoints();
 app.MapAggregateEndpoints();
+app.MapAdminEndpoints();
 
 app.MapFallbackToFile("index.html");
 

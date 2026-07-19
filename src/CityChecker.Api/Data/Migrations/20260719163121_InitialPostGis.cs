@@ -1,16 +1,21 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
+using NetTopologySuite.Geometries;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
 namespace CityChecker.Api.Data.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class InitialPostGis : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.AlterDatabase()
+                .Annotation("Npgsql:PostgresExtension:postgis", ",,");
+
             migrationBuilder.CreateTable(
                 name: "Cities",
                 columns: table => new
@@ -28,14 +33,34 @@ namespace CityChecker.Api.Data.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "districts_import_raw",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Osiedla = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    PunktyGraniczne = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    ExtraJson = table.Column<string>(type: "text", nullable: true),
+                    ImportedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_districts_import_raw", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Districts",
                 columns: table => new
                 {
                     DistrictId = table.Column<Guid>(type: "uuid", nullable: false),
                     CityId = table.Column<Guid>(type: "uuid", nullable: false),
                     Name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
-                    Geometry = table.Column<string>(type: "text", nullable: false),
-                    OfficialCode = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: true)
+                    OfficialCode = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    SourceName = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    Geom = table.Column<MultiPolygon>(type: "geometry(MultiPolygon, 4326)", nullable: false),
+                    AreaKm2 = table.Column<double>(type: "double precision", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -134,9 +159,15 @@ namespace CityChecker.Api.Data.Migrations
                 columns: new[] { "Lat", "Lon" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_Districts_CityId",
+                name: "IX_Districts_CityId_Name",
                 table: "Districts",
-                column: "CityId");
+                columns: new[] { "CityId", "Name" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Districts_Geom",
+                table: "Districts",
+                column: "Geom")
+                .Annotation("Npgsql:IndexMethod", "GIST");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Notes_AuthorGoogleId",
@@ -162,6 +193,9 @@ namespace CityChecker.Api.Data.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropTable(
+                name: "districts_import_raw");
+
             migrationBuilder.DropTable(
                 name: "Notes");
 

@@ -222,43 +222,61 @@ function clearDistricts() {
 async function loadDistricts(cityId) {
   clearDistricts();
   activeCityId = cityId;
-  const districts = await api(`/api/cities/${cityId}/districts`);
-  const features = [];
-  for (const d of districts) {
-    let score = null;
+
+  const token = getToken();
+  const res = await fetch(`/api/cities/${cityId}/districts/geojson`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error("Failed to load district GeoJSON");
+  const fc = await res.json();
+
+  // Attach aggregate scores for coloring
+  for (const f of fc.features || []) {
+    const id = f.properties?.id;
+    f.properties.districtId = id;
+    f.properties.cityId = f.properties.cityId || cityId;
+    f.properties.score = null;
+    if (!id) continue;
     try {
-      const agg = await api(`/api/aggregates/district/${d.districtId}`);
-      score = agg.scoreOverall;
+      const agg = await api(`/api/aggregates/district/${id}`);
+      f.properties.score = agg.scoreOverall;
     } catch { /* ignore */ }
-    features.push({
-      type: "Feature",
-      properties: { ...d, score },
-      geometry: d.geometry,
-    });
   }
 
-  districtLayer = L.geoJSON(
-    { type: "FeatureCollection", features },
-    {
-      style: (f) => ({
-        color: "#1a2b33",
-        weight: 1.5,
-        fillColor: scoreColor(f.properties.score),
-        fillOpacity: 0.45,
-        interactive: currentMode(map.getZoom()) === "district",
-      }),
-      onEachFeature: (feature, layer) => {
-        layer.bindTooltip(feature.properties.name);
-        layer.on("click", (e) => {
-          // Only consume the click in district mode — otherwise let map handle building reverse-geocode
-          if (currentMode(map.getZoom()) !== "district") return;
-          L.DomEvent.stopPropagation(e);
-          selectDistrict(feature.properties);
-        });
-      },
-    }
-  ).addTo(map);
+  districtLayer = L.geoJSON(fc, {
+    style: (f) => ({
+      color: "#1a2b33",
+      weight: 1.5,
+      fillColor: scoreColor(f.properties.score),
+      fillOpacity: 0.45,
+      interactive: currentMode(map.getZoom()) === "district",
+    }),
+    onEachFeature: (feature, layer) => {
+      const name = feature.properties.name || "";
+      const area = feature.properties.areaKm2;
+      const areaTxt = area != null ? `<br>${area} km²` : "";
+      layer.bindTooltip(name);
+      layer.bindPopup(`<strong>${name}</strong>${areaTxt}`);
+      layer.on("mouseover", () => {
+        if (currentMode(map.getZoom()) !== "district") return;
+        layer.setStyle({ weight: 3, fillOpacity: 0.65 });
+      });
+      layer.on("mouseout", () => {
+        districtLayer.resetStyle(layer);
+        setDistrictInteractive(currentMode(map.getZoom()) === "district");
+      });
+      layer.on("click", (e) => {
+        if (currentMode(map.getZoom()) !== "district") return;
+        L.DomEvent.stopPropagation(e);
+        selectDistrict(feature.properties);
+      });
+    },
+  }).addTo(map);
+
   setDistrictInteractive(currentMode(map.getZoom()) === "district");
+  try {
+    map.fitBounds(districtLayer.getBounds(), { padding: [20, 20], maxZoom: 13 });
+  } catch { /* empty layer */ }
 }
 
 async function loadBuildingMarkers() {
@@ -326,8 +344,8 @@ async function selectCity(city) {
 async function selectDistrict(d) {
   context = {
     level: "District",
-    cityId: d.cityId,
-    districtId: d.districtId,
+    cityId: d.cityId || activeCityId,
+    districtId: d.districtId || d.id,
     title: d.name,
   };
   await refreshSheet();

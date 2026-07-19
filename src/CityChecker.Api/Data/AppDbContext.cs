@@ -9,9 +9,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<District> Districts => Set<District>();
     public DbSet<Building> Buildings => Set<Building>();
     public DbSet<Note> Notes => Set<Note>();
+    public DbSet<DistrictImportRaw> DistrictsImportRaw => Set<DistrictImportRaw>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.HasPostgresExtension("postgis");
+
         modelBuilder.Entity<City>(e =>
         {
             e.HasKey(x => x.CityId);
@@ -24,10 +27,22 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasKey(x => x.DistrictId);
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
-            e.Property(x => x.Geometry).IsRequired();
-            e.Property(x => x.OfficialCode).HasMaxLength(32);
+            e.Property(x => x.OfficialCode).HasMaxLength(64);
+            e.Property(x => x.SourceName).HasMaxLength(200);
+            e.Property(x => x.Geom)
+                .HasColumnType("geometry(MultiPolygon, 4326)")
+                .IsRequired();
             e.HasOne(x => x.City).WithMany(c => c.Districts).HasForeignKey(x => x.CityId);
-            e.HasIndex(x => x.CityId);
+            e.HasIndex(x => new { x.CityId, x.Name });
+            e.HasIndex(x => x.Geom).HasMethod("GIST");
+        });
+
+        modelBuilder.Entity<DistrictImportRaw>(e =>
+        {
+            e.ToTable("districts_import_raw");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Osiedla).HasMaxLength(200);
+            e.Property(x => x.PunktyGraniczne).HasMaxLength(500);
         });
 
         modelBuilder.Entity<Building>(e =>

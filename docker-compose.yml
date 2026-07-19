@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: postgis/postgis:16-3.4
     environment:
       POSTGRES_USER: citychecker
       POSTGRES_PASSWORD: citychecker
@@ -25,6 +25,10 @@ services:
       Google__ClientId: ${GOOGLE_CLIENT_ID:-YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com}
       Google__AllowedUserId: ${GOOGLE_ALLOWED_USER_ID:-YOUR_GOOGLE_SUB}
       Nominatim__UserAgent: CityChecker/1.0 (personal; ${CONTACT_EMAIL:-dev@example.com})
+      Import__LodzDistrictsCsvPath: /app/DataImports/Granice osiedli.csv
+      Import__LodzDistrictsPolygonsPath: /app/DataImports/lodz-osiedla-polygons.json
+    volumes:
+      - ./DataImports:/app/DataImports:ro
     depends_on:
       db:
         condition: service_healthy
