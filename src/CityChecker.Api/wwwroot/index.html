@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Poland City Comfort Mapper</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="/css/app.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+</head>
+<body>
+  <div id="auth-gate" class="auth-gate">
+    <div class="auth-card">
+      <h1 data-i18n="appTitle">Poland City Comfort Mapper</h1>
+      <p data-i18n="signInHint">Sign in with Google to manage your city comfort notes.</p>
+      <div id="google-btn"></div>
+      <p id="auth-error" class="error hidden"></p>
+    </div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <header class="topbar">
+      <div class="brand" data-i18n="appTitle">Poland City Comfort Mapper</div>
+      <div class="topbar-actions">
+        <span id="zoom-mode" class="zoom-mode"></span>
+        <button type="button" id="lang-toggle" class="btn ghost" aria-label="Language">EN</button>
+        <button type="button" id="sign-out" class="btn ghost" data-i18n="signOut">Sign out</button>
+      </div>
+    </header>
+    <main class="map-wrap">
+      <div id="map"></div>
+    </main>
+    <aside id="sheet" class="sheet">
+      <div class="sheet-handle" id="sheet-handle"></div>
+      <div class="sheet-header">
+        <h2 id="sheet-title" data-i18n="selectPlace">Select a place on the map</h2>
+        <button type="button" id="add-note-btn" class="btn primary hidden" data-i18n="addNote">Add note</button>
+      </div>
+      <div id="sheet-meta" class="sheet-meta"></div>
+      <ul id="notes-list" class="notes-list"></ul>
+    </aside>
+  </div>
+
+  <dialog id="note-dialog" class="note-dialog">
+    <form id="note-form" method="dialog">
+      <h3 id="note-dialog-title" data-i18n="addNote">Add note</h3>
+      <label>
+        <span data-i18n="noteText">Note</span>
+        <textarea id="note-text" rows="4" required maxlength="4000"></textarea>
+      </label>
+      <label>
+        <span data-i18n="scoreOverall">Overall (1–10)</span>
+        <input type="range" id="score-overall" min="1" max="10" value="7" />
+        <output id="score-overall-out">7</output>
+      </label>
+      <div class="criteria-grid">
+        <label><span data-i18n="scoreNature">Nature</span><input type="number" id="score-nature" min="1" max="10" placeholder="—" /></label>
+        <label><span data-i18n="scoreShops">Shops</span><input type="number" id="score-shops" min="1" max="10" placeholder="—" /></label>
+        <label><span data-i18n="scoreTransport">Transport</span><input type="number" id="score-transport" min="1" max="10" placeholder="—" /></label>
+        <label><span data-i18n="scoreSafety">Safety</span><input type="number" id="score-safety" min="1" max="10" placeholder="—" /></label>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" id="note-cancel" class="btn ghost" data-i18n="cancel">Cancel</button>
+        <button type="submit" class="btn primary" data-i18n="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

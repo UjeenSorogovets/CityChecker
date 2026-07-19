@@ -1,0 +1,21 @@
+### Cities
+GET {{host}}/api/cities
+Authorization: Bearer {{token}}
+
+### Districts (Łódź)
+GET {{host}}/api/cities/11111111-1111-1111-1111-111111111111/districts
+Authorization: Bearer {{token}}
+
+### Reverse geocode
+POST {{host}}/api/buildings/reverse-geocode
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "lat": 51.7592,
+  "lon": 19.4560
+}
+
+### Notes
+GET {{host}}/api/notes?cityId=11111111-1111-1111-1111-111111111111&level=City
+Authorization: Bearer {{token}}
