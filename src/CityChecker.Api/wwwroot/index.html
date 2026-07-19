@@ -18,10 +18,10 @@
         <button type="button" id="tab-signin" class="auth-tab active" data-i18n="signIn">Sign in</button>
         <button type="button" id="tab-signup" class="auth-tab" data-i18n="signUp">Sign up</button>
       </div>
-      <form id="password-form" class="password-form">
+      <form id="password-form" class="password-form" method="post" action="#" autocomplete="on">
         <label>
           <span data-i18n="email">Email</span>
-          <input id="login-email" name="email" type="email" autocomplete="email" required />
+          <input id="login-email" name="email" type="email" autocomplete="username" required />
         </label>
         <label>
           <span data-i18n="password">Password</span>
@@ -36,6 +36,13 @@
   </div>
 
   <div id="app" class="app hidden">
+    <div id="city-picker" class="city-picker hidden">
+      <div class="city-picker-card">
+        <h2 data-i18n="pickCityTitle">Choose a city</h2>
+        <p data-i18n="pickCityHint">You’ll work in one city at a time. You can switch later from the edge menu.</p>
+        <ul id="city-picker-list" class="city-picker-list"></ul>
+      </div>
+    </div>
     <header class="topbar">
       <div class="brand" data-i18n="appTitle">Poland City Comfort Mapper</div>
       <div class="topbar-actions">
@@ -46,6 +53,14 @@
       </div>
     </header>
     <main class="map-wrap">
+      <button type="button" id="city-drawer-tab" class="city-drawer-tab" aria-expanded="false">
+        <span id="city-drawer-tab-label" data-i18n="citiesTab">Cities</span>
+      </button>
+      <aside id="city-drawer" class="city-drawer" aria-hidden="true">
+        <h3 data-i18n="switchCity">Switch city</h3>
+        <ul id="city-drawer-list" class="city-picker-list"></ul>
+      </aside>
+      <div id="city-drawer-scrim" class="city-drawer-scrim hidden"></div>
       <div id="map"></div>
       <aside id="housing-panel" class="housing-panel">
         <div class="housing-tabs">

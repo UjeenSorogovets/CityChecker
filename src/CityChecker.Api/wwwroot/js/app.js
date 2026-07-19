@@ -5,6 +5,8 @@ import { initHousing, housingMapClick, enrichDistrictSheet } from "./housing.js"
 const ZOOM_CITY = 10;
 const ZOOM_DISTRICT = 14;
 const ZOOM_INTO_DISTRICT = 12;
+const LOCKED_MIN_ZOOM = 11;
+const CITY_STORAGE_KEY = "cc_city_id";
 const POLAND_CENTER = [52.1, 19.4];
 // Tight mainland Poland frame (Leaflet [lat, lon])
 const POLAND_VIEW_BOUNDS = L.latLngBounds([49.05, 14.15], [54.85, 24.15]);
@@ -21,6 +23,8 @@ let buildingLayer = L.layerGroup();
 
 let cities = [];
 let activeCityId = null;
+/** Locked working city — one at a time */
+let lockedCityId = null;
 /** @type {string|null} */
 let selectedDistrictId = null;
 let context = null;
@@ -82,11 +86,62 @@ function requireAuthOrGate() {
   return true;
 }
 
+function scrubLeakedAuthQuery() {
+  // Login form used to GET-submit before JS was ready → ?email=&password= in the URL.
+  if (/[?&](email|password)=/i.test(location.search)) {
+    history.replaceState(null, "", location.pathname + location.hash);
+  }
+}
+
 async function initAuth() {
   applyI18n();
-  const cfg = await fetch("/api/config").then((r) => r.json());
-  const clientId = cfg.googleClientId;
-  let mode = "signin"; // or signup
+  scrubLeakedAuthQuery();
+
+  const form = document.getElementById("password-form");
+  const tabSignIn = document.getElementById("tab-signin");
+  const tabSignUp = document.getElementById("tab-signup");
+  const submitBtn = document.getElementById("auth-submit");
+  const passwordInput = document.getElementById("login-password");
+  let mode = "signin";
+
+  function setMode(next) {
+    mode = next;
+    tabSignIn.classList.toggle("active", mode === "signin");
+    tabSignUp.classList.toggle("active", mode === "signup");
+    submitBtn.textContent = t(mode === "signin" ? "signIn" : "signUp");
+    passwordInput.autocomplete = mode === "signin" ? "current-password" : "new-password";
+    els.authError.classList.add("hidden");
+  }
+  tabSignIn.onclick = () => setMode("signin");
+  tabSignUp.onclick = () => setMode("signup");
+
+  // Wire password form immediately — do not wait for Google GIS (that caused GET submits).
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    els.authError.classList.add("hidden");
+    const path = mode === "signup" ? "/api/auth/register" : "/api/auth/login";
+    try {
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: document.getElementById("login-email").value,
+          password: passwordInput.value,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw { message: body.error || t("authFailed"), status: res.status, body };
+      setToken(body.token);
+      sessionStorage.setItem("cc_had_token", "1");
+      history.replaceState(null, "", location.pathname);
+      await api("/api/cities");
+      showApp();
+    } catch (err) {
+      showAuthError(err);
+      clearToken();
+    }
+  };
 
   if (requireAuthOrGate()) {
     try {
@@ -106,50 +161,18 @@ async function initAuth() {
     els.authError.classList.remove("hidden");
   }
 
-  const tabSignIn = document.getElementById("tab-signin");
-  const tabSignUp = document.getElementById("tab-signup");
-  const submitBtn = document.getElementById("auth-submit");
-  const passwordInput = document.getElementById("login-password");
+  const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
+  wireGoogle(cfg.googleClientId);
+}
 
-  function setMode(next) {
-    mode = next;
-    tabSignIn.classList.toggle("active", mode === "signin");
-    tabSignUp.classList.toggle("active", mode === "signup");
-    submitBtn.textContent = t(mode === "signin" ? "signIn" : "signUp");
-    passwordInput.autocomplete = mode === "signin" ? "current-password" : "new-password";
-    els.authError.classList.add("hidden");
-  }
-  tabSignIn.onclick = () => setMode("signin");
-  tabSignUp.onclick = () => setMode("signup");
-
-  document.getElementById("password-form").onsubmit = async (e) => {
-    e.preventDefault();
-    els.authError.classList.add("hidden");
-    const path = mode === "signup" ? "/api/auth/register" : "/api/auth/login";
-    try {
-      const res = await fetch(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: document.getElementById("login-email").value,
-          password: passwordInput.value,
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw { message: body.error || t("authFailed"), status: res.status, body };
-      setToken(body.token);
-      sessionStorage.setItem("cc_had_token", "1");
-      await api("/api/cities");
-      showApp();
-    } catch (err) {
-      showAuthError(err);
-      clearToken();
+function wireGoogle(clientId) {
+  const tryInit = () => {
+    const canGoogle = clientId && !String(clientId).includes("YOUR_GOOGLE") && window.google?.accounts?.id;
+    if (!canGoogle) {
+      if (!window.google?.accounts?.id) setTimeout(tryInit, 50);
+      return;
     }
-  };
-
-  const canGoogle = clientId && !String(clientId).includes("YOUR_GOOGLE") && window.google?.accounts?.id;
-  const orEl = document.getElementById("auth-or");
-  if (canGoogle) {
+    const orEl = document.getElementById("auth-or");
     if (orEl) orEl.classList.remove("hidden");
     window.google.accounts.id.initialize({
       client_id: clientId,
@@ -170,21 +193,17 @@ async function initAuth() {
       size: "large",
       width: 280,
     });
-  }
+  };
+  tryInit();
 }
 
 function bootAuth() {
-  // Email/password always available; Google script is optional.
-  if (window.google?.accounts?.id) {
-    initAuth();
-    return;
-  }
-  let tries = 0;
-  const tick = () => {
-    if (window.google?.accounts?.id || tries++ > 40) initAuth();
-    else setTimeout(tick, 50);
-  };
-  tick();
+  scrubLeakedAuthQuery();
+  // Block native navigation even before initAuth finishes fetching config.
+  document.getElementById("password-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+  });
+  initAuth();
 }
 bootAuth();
 
@@ -206,14 +225,149 @@ async function showApp() {
   els.authError.classList.add("hidden");
   applyI18n();
   initMap();
-  // Leaflet measures a hidden/zero-size container wrongly — refit after layout
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => fitPolandView());
-  });
   cities = await api("/api/cities");
-  renderCityMarkers();
+  wireCityUi();
   updateZoomLabel();
-  fitPolandView();
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => map?.invalidateSize());
+  });
+
+  const available = availableCities();
+  const saved = loadSavedCityId();
+  const savedCity = available.find((c) => c.cityId === saved);
+  if (savedCity) {
+    hideCityPicker();
+    await enterCity(savedCity, { persist: false });
+  } else {
+    if (saved) localStorage.removeItem(CITY_STORAGE_KEY);
+    showCityPicker();
+  }
+}
+
+function availableCities() {
+  return cities.filter((c) => (c.districtCount ?? 0) > 0);
+}
+
+function loadSavedCityId() {
+  return localStorage.getItem(CITY_STORAGE_KEY);
+}
+
+function saveCityId(cityId) {
+  localStorage.setItem(CITY_STORAGE_KEY, cityId);
+}
+
+function showCityPicker() {
+  const overlay = document.getElementById("city-picker");
+  const list = document.getElementById("city-picker-list");
+  if (!overlay || !list) return;
+  fillCityList(list, null);
+  overlay.classList.remove("hidden");
+}
+
+function hideCityPicker() {
+  document.getElementById("city-picker")?.classList.add("hidden");
+}
+
+function fillCityList(listEl, highlightId) {
+  listEl.innerHTML = "";
+  for (const c of availableCities()) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    if (highlightId && c.cityId === highlightId) btn.classList.add("active");
+    btn.innerHTML = `${c.name}<span class="meta">${c.voivodeship || ""} · ${c.districtCount}</span>`;
+    btn.onclick = () => onCityChosen(c);
+    li.appendChild(btn);
+    listEl.appendChild(li);
+  }
+}
+
+function wireCityUi() {
+  const tab = document.getElementById("city-drawer-tab");
+  const drawer = document.getElementById("city-drawer");
+  const scrim = document.getElementById("city-drawer-scrim");
+  if (!tab || tab.dataset.wired) return;
+  tab.dataset.wired = "1";
+
+  const close = () => {
+    drawer?.classList.remove("open");
+    scrim?.classList.add("hidden");
+    tab.setAttribute("aria-expanded", "false");
+    drawer?.setAttribute("aria-hidden", "true");
+  };
+  const open = () => {
+    fillCityList(document.getElementById("city-drawer-list"), lockedCityId);
+    drawer?.classList.add("open");
+    scrim?.classList.remove("hidden");
+    tab.setAttribute("aria-expanded", "true");
+    drawer?.setAttribute("aria-hidden", "false");
+  };
+
+  tab.addEventListener("click", () => {
+    if (drawer?.classList.contains("open")) close();
+    else open();
+  });
+  scrim?.addEventListener("click", close);
+}
+
+function updateCityTabLabel(city) {
+  const label = document.getElementById("city-drawer-tab-label");
+  if (!label) return;
+  label.textContent = city?.name || t("citiesTab");
+}
+
+async function onCityChosen(city) {
+  await enterCity(city, { persist: true });
+}
+
+function closeCityDrawer() {
+  document.getElementById("city-drawer")?.classList.remove("open");
+  document.getElementById("city-drawer-scrim")?.classList.add("hidden");
+  document.getElementById("city-drawer-tab")?.setAttribute("aria-expanded", "false");
+  document.getElementById("city-drawer")?.setAttribute("aria-hidden", "true");
+}
+
+async function enterCity(city, { persist = true } = {}) {
+  if (!map || !city) return;
+  if (persist) saveCityId(city.cityId);
+
+  const lat = Number(city.centerLat);
+  const lon = Number(city.centerLon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    console.error("enterCity: invalid center", city);
+    return;
+  }
+
+  lockedCityId = city.cityId;
+  selectedDistrictId = null;
+  mapShortlistIds = null;
+  buildingLayer.clearLayers();
+  if (map.hasLayer(cityLayer)) map.removeLayer(cityLayer);
+
+  hideCityPicker();
+  closeCityDrawer();
+
+  // Move to the city FIRST, then raise minZoom. Raising minZoom while still on
+  // Poland-center would clamp zoom to 11 over the wrong place.
+  map.setMinZoom(6);
+  map.setView([lat, lon], ZOOM_INTO_DISTRICT, { animate: false });
+  map.setMinZoom(LOCKED_MIN_ZOOM);
+
+  context = { level: "City", cityId: city.cityId, title: city.name };
+  document.getElementById("housing-district-slot").innerHTML = "";
+  updateCityTabLabel(city);
+  updateZoomLabel();
+
+  await loadDistricts(city.cityId);
+  applyDistrictStyles();
+
+  // Picker overlay was covering the map — size/center can be wrong until layout settles.
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  map.invalidateSize();
+  map.setView([lat, lon], ZOOM_INTO_DISTRICT, { animate: false });
+
+  await refreshSheet();
 }
 
 function fitPolandView() {
@@ -285,29 +439,17 @@ async function onZoomOrMove() {
     return;
   }
   updateZoomLabel();
+  if (!lockedCityId) return;
+
   const mode = currentMode(map.getZoom());
-  if (mode === "city") {
-    clearDistricts();
-    buildingLayer.clearLayers();
-    cityLayer.addTo(map);
-    return;
+  // Locked to one city — never clear districts or show Poland city markers
+  if (map.hasLayer(cityLayer)) map.removeLayer(cityLayer);
+
+  if (activeCityId !== lockedCityId || !districtLayer) {
+    await loadDistricts(lockedCityId);
   }
 
-  map.removeLayer(cityLayer);
-  const city = nearestCity(map.getCenter());
-  if (city && (city.districtCount ?? 0) === 0) {
-    clearDistricts();
-    buildingLayer.clearLayers();
-    return;
-  }
-
-  if (city && city.cityId !== activeCityId) {
-    await loadDistricts(city.cityId);
-  } else if (city && !districtLayer) {
-    await loadDistricts(city.cityId);
-  }
-
-  setDistrictInteractive(mode === "district");
+  setDistrictInteractive(mode === "district" || mode === "city");
   if (mode === "building") await loadBuildingMarkers();
   else buildingLayer.clearLayers();
 }
@@ -536,20 +678,14 @@ async function onMapClick(e) {
       els.addNoteBtn.classList.add("hidden");
       els.notesList.innerHTML = "";
     }
-  } else if (mode === "city") {
+  } else if (mode === "city" && !lockedCityId) {
     const city = nearestCity(e.latlng);
     if (city) selectCity(city);
   }
 }
 
 async function selectCity(city) {
-  selectedDistrictId = null;
-  applyDistrictStyles();
-  context = { level: "City", cityId: city.cityId, title: city.name };
-  document.getElementById("housing-district-slot").innerHTML = "";
-  // Enter district zoom band so polygons load
-  map.setView([city.centerLat, city.centerLon], ZOOM_INTO_DISTRICT);
-  await refreshSheet();
+  await enterCity(city, { persist: true });
 }
 
 async function selectDistrict(d) {
