@@ -33,6 +33,8 @@ let context = null;
 let editingNoteId = null;
 const DEFAULT_POINT_RADIUS = 300;
 const FAB_DRAG_MIN_PX = 8;
+const SHEET_DRAG_THRESHOLD = 40;
+const SHEET_SNAP_ORDER = ["peek", "half", "full"];
 const isCoarsePointer = () => window.matchMedia("(pointer: coarse)").matches;
 /** @type {AbortController | null} */
 let mapAbort = null;
@@ -75,8 +77,115 @@ function currentMode(zoom) {
   return "building";
 }
 
-function expandSheet() {
-  els.sheet.classList.add("expanded");
+function isMobileSheet() {
+  return window.matchMedia("(max-width: 899px)").matches;
+}
+
+function getSheetSnap() {
+  if (els.sheet.classList.contains("sheet-peek")) return "peek";
+  if (els.sheet.classList.contains("sheet-full")) return "full";
+  return "half";
+}
+
+function setSheetSnap(snap) {
+  if (!isMobileSheet()) {
+    els.sheet.classList.remove("sheet-peek", "sheet-half", "sheet-full");
+    return;
+  }
+  els.sheet.classList.remove("sheet-peek", "sheet-half", "sheet-full");
+  els.sheet.classList.add(`sheet-${snap}`);
+  updateFabPosition();
+  updateSheetHandleAria();
+}
+
+function updateSheetHandleAria() {
+  const handle = document.getElementById("sheet-handle");
+  if (!handle || !isMobileSheet()) return;
+  const key = getSheetSnap() === "full" ? "sheetCollapse" : "sheetExpand";
+  handle.setAttribute("aria-label", t(key));
+}
+
+function updateFabPosition() {
+  const fab = document.getElementById("place-note-fab");
+  if (!fab || fab.classList.contains("hidden")) return;
+  if (!isMobileSheet()) {
+    fab.style.bottom = "";
+    return;
+  }
+  const sheetH = els.sheet.getBoundingClientRect().height;
+  const safe =
+    parseInt(getComputedStyle(document.documentElement).getPropertyValue("env(safe-area-inset-bottom)")) || 0;
+  fab.style.bottom = `${sheetH + 12 + safe}px`;
+}
+
+function cycleSheetSnap() {
+  const order = ["half", "full", "peek"];
+  const i = order.indexOf(getSheetSnap());
+  setSheetSnap(order[(i + 1) % order.length]);
+}
+
+function initSheet() {
+  if (els.sheet.dataset.wired) return;
+  els.sheet.dataset.wired = "1";
+  setSheetSnap("half");
+  const ro = new ResizeObserver(() => updateFabPosition());
+  ro.observe(els.sheet);
+  window.addEventListener("resize", updateFabPosition);
+  initSheetHandle();
+  els.dialog.addEventListener("close", () => {
+    if (lockedCityId) setPlaceNoteFabVisible(true);
+    updateFabPosition();
+  });
+}
+
+function initSheetHandle() {
+  const handle = document.getElementById("sheet-handle");
+  if (!handle || handle.dataset.wired) return;
+  handle.dataset.wired = "1";
+
+  let dragging = false;
+  let moved = false;
+  let startY = 0;
+  let dragY = 0;
+
+  handle.addEventListener("pointerdown", (e) => {
+    if (!isMobileSheet()) return;
+    dragging = true;
+    moved = false;
+    dragY = 0;
+    startY = e.clientY;
+    handle.setPointerCapture(e.pointerId);
+  });
+
+  handle.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    dragY = e.clientY - startY;
+    if (Math.abs(dragY) >= SHEET_DRAG_THRESHOLD) moved = true;
+  });
+
+  const finish = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    try {
+      handle.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    if (!isMobileSheet()) return;
+    if (moved) {
+      const cur = SHEET_SNAP_ORDER.indexOf(getSheetSnap());
+      if (dragY < -SHEET_DRAG_THRESHOLD && cur < SHEET_SNAP_ORDER.length - 1) {
+        setSheetSnap(SHEET_SNAP_ORDER[cur + 1]);
+      } else if (dragY > SHEET_DRAG_THRESHOLD && cur > 0) {
+        setSheetSnap(SHEET_SNAP_ORDER[cur - 1]);
+      }
+      return;
+    }
+    cycleSheetSnap();
+  };
+
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
 }
 
 function lockedCityName() {
@@ -88,7 +197,10 @@ function setPlaceNoteFabVisible(visible) {
   const fab = document.getElementById("place-note-fab");
   if (!fab) return;
   fab.classList.toggle("hidden", !visible);
-  if (visible) updatePlaceNoteFabLabel();
+  if (visible) {
+    updatePlaceNoteFabLabel();
+    updateFabPosition();
+  }
 }
 
 function updatePlaceNoteFabLabel() {
@@ -105,7 +217,7 @@ async function clearSelection() {
   applyDistrictStyles();
   context = { level: "City", cityId: lockedCityId, title: lockedCityName() };
   document.getElementById("housing-district-slot").innerHTML = "";
-  expandSheet();
+  setSheetSnap("peek");
   await refreshSheet();
 }
 
@@ -157,13 +269,14 @@ function initPlaceNoteFab() {
     } catch {
       /* ignore */
     }
-    if (!moved || !lockedCityId) return;
+    if (!moved || !lockedCityId || !map) return;
 
-    const rect = mapEl.getBoundingClientRect();
+    const mapContainer = map.getContainer();
     const { clientX: x, clientY: y } = e;
-    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
+    const hit = document.elementFromPoint(x, y);
+    if (!hit || !mapContainer.contains(hit)) return;
 
-    const latlng = map.containerPointToLatLng(L.point(x - rect.left, y - rect.top));
+    const latlng = map.mouseEventToLatLng(e);
     await placeNewPointNote(latlng);
   };
 
@@ -326,6 +439,7 @@ async function showApp() {
   els.authError.classList.add("hidden");
   applyI18n();
   initMap();
+  initSheet();
   cities = await api("/api/cities");
   wireCityUi();
   updateZoomLabel();
@@ -473,6 +587,8 @@ async function enterCity(city, { persist = true } = {}) {
   map.setView([lat, lon], ZOOM_INTO_DISTRICT, { animate: false });
 
   await refreshSheet();
+  setSheetSnap("half");
+  updateFabPosition();
 }
 
 function fitPolandView() {
@@ -776,7 +892,7 @@ async function selectPointNote(n) {
     selectedDistrictId = null;
     applyDistrictStyles();
   }
-  expandSheet();
+  setSheetSnap("half");
   await refreshSheet();
 }
 
@@ -793,7 +909,6 @@ async function placeNewPointNote(latlng) {
     title: `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`,
   };
   document.getElementById("housing-district-slot").innerHTML = "";
-  expandSheet();
   openNoteForm();
 }
 
@@ -894,7 +1009,7 @@ async function selectDistrict(d) {
     districtId: selectedDistrictId,
     title: d.name,
   };
-  expandSheet();
+  setSheetSnap("half");
   await refreshSheet();
   await enrichDistrictSheet(selectedDistrictId, document.getElementById("housing-district-slot"));
 }
@@ -909,7 +1024,7 @@ async function selectBuilding(b) {
     buildingId: b.buildingId,
     title: b.addressLine,
   };
-  expandSheet();
+  setSheetSnap("half");
   await refreshSheet();
   const slot = document.getElementById("housing-district-slot");
   slot.innerHTML = "";
@@ -1007,6 +1122,7 @@ async function refreshSheet() {
       };
       els.notesList.appendChild(li);
     }
+    if (isMobileSheet() && list.length > 2) setSheetSnap("full");
   } catch (err) {
     if (err.status === 401) showAuthError({ message: t("sessionExpired") });
     else throw err;
@@ -1040,6 +1156,7 @@ function openNoteForm(note = null) {
   if (showRadius) {
     radiusInput.value = note?.radiusMeters ?? context?.radiusMeters ?? DEFAULT_POINT_RADIUS;
   }
+  document.getElementById("place-note-fab")?.classList.add("hidden");
   els.dialog.showModal();
 }
 
@@ -1102,6 +1219,7 @@ els.form.addEventListener("submit", async (e) => {
   await reloadDistrictColors();
   await loadPointNotes();
   await refreshSheet();
+  if (level === "Point") setSheetSnap("half");
   if (context.level === "Building") {
     await refreshCityAggregates(activeCityId || context.cityId);
     await loadBuildingMarkers();
@@ -1112,15 +1230,12 @@ document.getElementById("lang-toggle").addEventListener("click", () => {
   toggleLang();
   updateZoomLabel();
   updatePlaceNoteFabLabel();
+  updateSheetHandleAria();
   if (context) refreshSheet();
 });
 
 document.getElementById("sign-out").addEventListener("click", () => {
   clearToken();
   location.reload();
-});
-
-document.getElementById("sheet-handle").addEventListener("click", () => {
-  els.sheet.classList.toggle("expanded");
 });
 

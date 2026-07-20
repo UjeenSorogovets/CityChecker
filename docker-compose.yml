@@ -20,7 +20,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_ENVIRONMENT: Development
+      App__PublicBaseUrl: http://localhost:8080
       ConnectionStrings__Default: Host=db;Port=5432;Database=citychecker;Username=citychecker;Password=citychecker
       Google__ClientId: ${GOOGLE_CLIENT_ID:-YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com}
       Google__AllowedUserId: ${GOOGLE_ALLOWED_USER_ID:-YOUR_GOOGLE_SUB}

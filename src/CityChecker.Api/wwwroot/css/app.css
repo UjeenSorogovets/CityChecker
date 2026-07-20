@@ -123,8 +123,6 @@ body {
 .place-note-fab {
   position: fixed;
   right: max(1rem, env(safe-area-inset-right, 0px));
-  /* Above bottom sheet (~45dvh); z-index beats .sheet (900) */
-  bottom: calc(45dvh + max(0.75rem, env(safe-area-inset-bottom, 0px)));
   z-index: 950;
   width: 3.5rem;
   height: 3.5rem;
@@ -367,23 +365,45 @@ body.place-note-dragging .leaflet-container { pointer-events: none; }
   left: 0;
   right: 0;
   bottom: 0;
-  max-height: 45%;
+  max-height: 45dvh;
   background: var(--sheet);
   border-radius: 16px 16px 0 0;
   box-shadow: var(--shadow);
-  padding: 0.35rem 1rem 1rem;
+  padding: 0;
   z-index: 900;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   transform: translateY(0);
   transition: max-height 0.2s ease;
 }
-.sheet.expanded { max-height: 70%; }
+.sheet-chrome {
+  flex-shrink: 0;
+  padding: 0 1rem 0;
+}
+.sheet-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 1rem 1rem;
+}
 .sheet-handle {
+  display: block;
+  width: 100%;
+  min-height: 2.75rem;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  touch-action: none;
+}
+.sheet-handle-bar {
+  display: block;
   width: 2.5rem;
   height: 4px;
   background: var(--border);
   border-radius: 2px;
-  margin: 0.35rem auto 0.6rem;
+  margin: 0 auto;
 }
 .sheet-header {
   display: flex;
@@ -552,6 +572,12 @@ body.place-note-dragging .leaflet-container { pointer-events: none; }
 .housing-panel label input[type="number"] { width: 4rem; }
 .muted { color: var(--muted); font-size: 0.85rem; }
 #housing-place-anchor.active { outline: 2px solid var(--accent); }
+
+@media (max-width: 899px) {
+  .sheet.sheet-peek { max-height: 5.5rem; }
+  .sheet.sheet-half { max-height: 45dvh; }
+  .sheet.sheet-full { max-height: 78dvh; }
+}
 
 @media (min-width: 900px) {
   .app {

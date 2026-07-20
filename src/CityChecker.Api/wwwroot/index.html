@@ -111,15 +111,21 @@
         </div>
       </aside>
     </main>
-    <aside id="sheet" class="sheet">
-      <div class="sheet-handle" id="sheet-handle"></div>
-      <div class="sheet-header">
-        <h2 id="sheet-title" data-i18n="selectPlace">Select a place on the map</h2>
-        <button type="button" id="add-note-btn" class="btn primary hidden" data-i18n="addNote">Add note</button>
+    <aside id="sheet" class="sheet sheet-half">
+      <div class="sheet-chrome">
+        <button type="button" class="sheet-handle" id="sheet-handle" data-i18n-aria="sheetExpand">
+          <span class="sheet-handle-bar" aria-hidden="true"></span>
+        </button>
+        <div class="sheet-header">
+          <h2 id="sheet-title" data-i18n="selectPlace">Select a place on the map</h2>
+          <button type="button" id="add-note-btn" class="btn primary hidden" data-i18n="addNote">Add note</button>
+        </div>
+        <div id="sheet-meta" class="sheet-meta"></div>
       </div>
-      <div id="sheet-meta" class="sheet-meta"></div>
-      <div id="housing-district-slot"></div>
-      <ul id="notes-list" class="notes-list"></ul>
+      <div class="sheet-body">
+        <div id="housing-district-slot"></div>
+        <ul id="notes-list" class="notes-list"></ul>
+      </div>
     </aside>
     <button type="button" id="place-note-fab" class="place-note-fab hidden" data-i18n-title="placeNoteFab" title="Drag to map to add point note">
       <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>

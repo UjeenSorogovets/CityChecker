@@ -35,6 +35,8 @@ export const i18n = {
     pointNote: "Point note",
     dropPoint: "Drop point",
     placeNoteFab: "Drag to map to add point note",
+    sheetExpand: "Expand panel",
+    sheetCollapse: "Collapse panel",
     dragToPlaceNote: "Drag the teal pin on the map (bottom-right of the map area) to add a point note.",
     housingTools: "Decide",
     pickCityTitle: "Choose a city",
@@ -153,6 +155,8 @@ export const i18n = {
     pointNote: "Точка",
     dropPoint: "Поставить точку",
     placeNoteFab: "Перетащите на карту, чтобы добавить точку",
+    sheetExpand: "Развернуть панель",
+    sheetCollapse: "Свернуть панель",
     dragToPlaceNote: "Перетащите бирюзовый значок на карте (справа внизу карты), чтобы добавить точку.",
     housingTools: "Решение",
     pickCityTitle: "Выберите город",
@@ -268,6 +272,10 @@ export function applyI18n() {
     const text = t(key);
     el.setAttribute("title", text);
     el.setAttribute("aria-label", text);
+  });
+  document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-aria");
+    el.setAttribute("aria-label", t(key));
   });
   const btn = document.getElementById("lang-toggle");
   if (btn) btn.textContent = lang.toUpperCase();
