@@ -2,7 +2,7 @@
 set -e
 cd "$(dirname "$0")"
 
-[ -f .env ] || { cp .env.example .env && echo "Created .env — set AUTH_JWT_SECRET and ACME_EMAIL"; }
+[ -f .env ] || { cp .env.example .env && echo "Created .env — edit AUTH_JWT_SECRET and DOMAIN"; }
 
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 echo ""

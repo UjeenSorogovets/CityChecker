@@ -51,7 +51,6 @@ In `.env` on the server:
 
 ```env
 DOMAIN=ujeen.pl
-ACME_EMAIL=you@example.com
 APP_PUBLIC_BASE_URL=https://ujeen.pl
 AUTH_JWT_SECRET=…
 ```

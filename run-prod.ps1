@@ -4,7 +4,7 @@ Set-Location $PSScriptRoot
 
 if (-not (Test-Path .env)) {
   Copy-Item .env.example .env
-  Write-Host "Created .env from .env.example — set AUTH_JWT_SECRET and ACME_EMAIL"
+  Write-Host "Created .env from .env.example — edit AUTH_JWT_SECRET and DOMAIN"
 }
 
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d

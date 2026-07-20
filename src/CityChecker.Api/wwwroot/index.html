@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Poland City Comfort Mapper</title>
+  <link rel="icon" href="/logo.ico" sizes="any" />
+  <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/logo.svg" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   <link rel="stylesheet" href="/css/app.css" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -12,6 +15,7 @@
 <body>
   <div id="auth-gate" class="auth-gate">
     <div class="auth-card">
+      <img src="/logo.svg" alt="" class="auth-logo" width="72" height="72" />
       <h1 data-i18n="appTitle">Poland City Comfort Mapper</h1>
       <p data-i18n="signInHint">Sign in to manage your city comfort notes.</p>
       <div class="auth-tabs" role="tablist">
@@ -44,7 +48,10 @@
       </div>
     </div>
     <header class="topbar">
-      <div class="brand" data-i18n="appTitle">Poland City Comfort Mapper</div>
+      <div class="brand">
+        <img src="/logo.svg" alt="" class="brand-logo" width="28" height="28" />
+        <span data-i18n="appTitle">Poland City Comfort Mapper</span>
+      </div>
       <div class="topbar-actions">
         <span id="zoom-mode" class="zoom-mode"></span>
         <button type="button" id="housing-toggle" class="btn ghost" data-i18n="housingTools">Decide</button>

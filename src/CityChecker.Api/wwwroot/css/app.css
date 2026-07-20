@@ -38,6 +38,13 @@ body {
   max-width: 26rem;
   text-align: center;
 }
+.auth-card .auth-logo {
+  display: block;
+  width: 4.5rem;
+  height: 4.5rem;
+  margin: 0 auto 0.75rem;
+  object-fit: contain;
+}
 .auth-card h1 {
   font-family: var(--display);
   font-weight: 600;
@@ -189,9 +196,21 @@ body.place-note-dragging .leaflet-container { pointer-events: none; }
   backdrop-filter: blur(8px);
 }
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
   font-family: var(--display);
   font-size: 1rem;
   font-weight: 600;
+}
+.brand-logo {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  object-fit: contain;
+}
+.brand span {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

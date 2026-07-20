@@ -145,7 +145,7 @@ Notable: `PointNotesReplaceDistrict` deletes old `Level=1` district notes and ad
 | Source | Keys |
 |--------|------|
 | `appsettings.json` | ConnectionStrings, Google, Nominatim, Import paths |
-| `.env` / docker-compose | `GOOGLE_CLIENT_ID`, `GOOGLE_ALLOWED_USER_ID`, `AUTH_JWT_SECRET`, `CONTACT_EMAIL`, `DOMAIN`, `ACME_EMAIL` |
+| `.env` / docker-compose | `GOOGLE_CLIENT_ID`, `GOOGLE_ALLOWED_USER_ID`, `AUTH_JWT_SECRET`, `CONTACT_EMAIL`, `DOMAIN`, `APP_PUBLIC_BASE_URL` |
 | Docker api service | `ASPNETCORE_ENVIRONMENT: Production`, connection to `db` host |
 | Production overlay | `App__PublicBaseUrl`, `Cors__AllowedOrigins__*`, no public `api` ports |
 | `appsettings.Production.json` | `AllowedHosts`: ujeen.pl;www.ujeen.pl, `App:PublicBaseUrl` |
