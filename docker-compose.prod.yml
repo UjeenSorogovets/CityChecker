@@ -1,20 +1,24 @@
-# Production overlay: TLS via Caddy + Production env for the API.
+# Production: Caddy on 80/443 → api:8080 (internal). Do not publish API port publicly.
 #
-#   export DOMAIN=your.domain.com
-#   export ACME_EMAIL=you@example.com
-#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+#   cp .env.example .env   # set DOMAIN=ujeen.pl, ACME_EMAIL, AUTH_JWT_SECRET, …
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 #
-# Point DNS A/AAAA for DOMAIN at this host. Open ports 80/443.
-# Add https://DOMAIN to Google OAuth Authorized JavaScript origins.
-# Optionally firewall host port 8080 so only Caddy is public.
+# DNS: A/AAAA for ujeen.pl and www.ujeen.pl → this host. Open firewall 80/443; block 8080.
 
 services:
   api:
+    ports: []
+    expose:
+      - "8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      App__PublicBaseUrl: ${APP_PUBLIC_BASE_URL:-https://ujeen.pl}
+      Cors__AllowedOrigins__0: https://ujeen.pl
+      Cors__AllowedOrigins__1: https://www.ujeen.pl
     restart: unless-stopped
 
   db:
+    ports: []
     restart: unless-stopped
 
   caddy:
@@ -23,7 +27,9 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      DOMAIN: ${DOMAIN:-localhost}
+      DOMAIN: ${DOMAIN:-ujeen.pl}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      SERVER_IP: ${SERVER_IP:-}
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

@@ -1,7 +1,15 @@
-# Set DOMAIN to your public hostname for Let's Encrypt certificates.
-# Example: DOMAIN=comfort.example.com ACME_EMAIL=you@example.com
+# Set DOMAIN and ACME_EMAIL in .env (see .env.example).
 
-{$DOMAIN:localhost} {
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN:ujeen.pl}, www.{$DOMAIN:ujeen.pl} {
 	encode gzip
-	reverse_proxy api:8080
+	reverse_proxy api:8080 {
+		header_up Host {host}
+		header_up X-Forwarded-Host {host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-For {remote_ip}
+	}
 }

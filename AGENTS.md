@@ -16,7 +16,7 @@ This file is for AI coding assistants. Humans: see [README.md](README.md) for co
 
 **Auth:** email/password (JWT, `PasswordAuth.Scheme`) + optional Google Sign-In (JWT, `Google` scheme). Single-user personal app — any authenticated user is allowed (`EnsureOwner` only checks signed-in). Google OAuth needs HTTPS + domain; password auth works on plain `http://IP:8080`.
 
-**Deploy:** VPS at `/opt/CityChecker`, `docker compose up --build -d`, port 8080. User commits/pushes themselves — do not commit unless asked.
+**Deploy:** VPS at `/opt/CityChecker`. Production: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d` → **https://ujeen.pl** (Caddy 80/443 → api:8080 internal). Local dev: `docker compose up` → localhost:8080. User commits/pushes themselves — do not commit unless asked.
 
 ## Repository layout
 
@@ -147,6 +147,8 @@ Notable: `PointNotesReplaceDistrict` deletes old `Level=1` district notes and ad
 | `appsettings.json` | ConnectionStrings, Google, Nominatim, Import paths |
 | `.env` / docker-compose | `GOOGLE_CLIENT_ID`, `GOOGLE_ALLOWED_USER_ID`, `AUTH_JWT_SECRET`, `CONTACT_EMAIL`, `DOMAIN`, `ACME_EMAIL` |
 | Docker api service | `ASPNETCORE_ENVIRONMENT: Production`, connection to `db` host |
+| Production overlay | `App__PublicBaseUrl`, `Cors__AllowedOrigins__*`, no public `api` ports |
+| `appsettings.Production.json` | `AllowedHosts`: ujeen.pl;www.ujeen.pl, `App:PublicBaseUrl` |
 
 Local dev DB: `localhost:5432`, user/pass/db `citychecker`.
 

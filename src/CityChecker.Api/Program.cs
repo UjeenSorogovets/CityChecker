@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json.Serialization;
 using CityChecker.Api.Auth;
@@ -5,10 +6,35 @@ using CityChecker.Api.Data;
 using CityChecker.Api.Endpoints;
 using CityChecker.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var publicBaseUrl = builder.Configuration["App:PublicBaseUrl"]?.TrimEnd('/');
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? (publicBaseUrl is not null ? [publicBaseUrl] : []);
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+        | ForwardedHeaders.XForwardedProto
+        | ForwardedHeaders.XForwardedHost;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+if (corsOrigins.Length > 0)
+{
+    builder.Services.AddCors(options =>
+    {
+        options.AddDefaultPolicy(policy =>
+            policy.WithOrigins(corsOrigins)
+                .AllowAnyHeader()
+                .AllowAnyMethod());
+    });
+}
 
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
@@ -128,6 +154,34 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+app.UseForwardedHeaders();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
+
+if (publicBaseUrl is not null)
+{
+    app.Use(async (ctx, next) =>
+    {
+        var host = ctx.Request.Host.Host;
+        if (IPAddress.TryParse(host, out _))
+        {
+            var target = publicBaseUrl + ctx.Request.Path + ctx.Request.QueryString;
+            ctx.Response.Redirect(target, permanent: true);
+            return;
+        }
+        await next();
+    });
+}
+
+if (corsOrigins.Length > 0)
+{
+    app.UseCors();
+}
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
@@ -137,6 +191,7 @@ app.UseAuthorization();
 app.MapGet("/api/config", (IConfiguration config) => Results.Ok(new
 {
     googleClientId = config["Google:ClientId"],
+    publicBaseUrl = config["App:PublicBaseUrl"]?.TrimEnd('/'),
 }));
 
 app.MapAuthEndpoints();
