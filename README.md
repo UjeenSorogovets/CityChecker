@@ -1,146 +1,91 @@
-# обPoland City Comfort Mapper
+# Poland City Comfort Mapper
 
-Personal map tool for evaluating Polish cities / neighborhoods / buildings (notes + scores).  
-ASP.NET Core minimal API + Leaflet SPA + **PostgreSQL/PostGIS**.
+Personal map for notes and scores on Polish cities, neighborhoods, and buildings.
 
-## What changed for Łódź districts
+**Stack:** ASP.NET Core (.NET 10) + Leaflet SPA + PostgreSQL/PostGIS · Docker on port **8080**
 
-The portal file `[Granice osiedli.csv](https://otwarte.miasto.lodz.pl/dane-przestrzenne/)` is **not WKT/GeoJSON**.  
-It is a list of ~63k street-address points grouped into **36 osiedla** (neighborhoods).
+## Run locally (one command)
 
-Import is a **one-time** (or rare re-run) operation. Day-to-day the app only reads PostGIS `Districts`.
+**Windows (PowerShell):**
 
-Pipeline when you re-import:
-
-1. Stage CSV rows into `districts_import_raw` (then truncate after success is fine).
-2. Match unique osiedle names to `DataImports/lodz-osiedla-polygons.json`.
-3. Write PostGIS `geometry(MultiPolygon, 4326)`.
-
-Optional: regenerate OSM polygon cache with `python DataImports/_fetch_osiedla_polygons.py`.
-
-## Quick start (Docker + PostGIS)
-
-1. Copy `.env.example` → `.env`. Optionally set `AUTH_JWT_SECRET` (and Google Client ID if you use Google later).
-2. Ensure `DataImports/Granice osiedli.csv` and `DataImports/lodz-osiedla-polygons.json` exist (CSV is downloaded from the open-data portal; polygons are already generated).
-3. **Recreate DB volume** (required once when switching to PostGIS):
-
-```bash
-docker-compose down -v
-docker-compose up --build
+```powershell
+.\run.ps1
 ```
 
-1. Open [http://localhost:8080](http://localhost:8080) — **Sign up** with email/password (works on plain `http://IP:8080`). Google Sign-In still needs `https://` + a domain. On first boot the API auto-imports 36 Łódź osiedla when `Districts` is empty.
-
-Re-run import manually (after sign-in, with Bearer token):
-
-```http
-POST /api/admin/import/lodz-districts
-Authorization: Bearer <token>
-```
-
-
-
-## Local development
+**Linux / macOS:**
 
 ```bash
-docker-compose up db -d
-# connection string already in appsettings.json
+./run.sh
+```
+
+Opens **http://localhost:8080** when the API is up. First time: sign up with email/password.
+
+(`run.ps1` / `run.sh` create `.env` from `.env.example` if missing, then `docker compose up --build`.)
+
+## First run (Docker)
+
+```bash
+cp .env.example .env
+# edit .env — set AUTH_JWT_SECRET (and Google vars if you use Google later)
+
+docker compose down -v   # only when resetting DB / first PostGIS setup
+docker compose up --build -d
+```
+
+Open **http://localhost:8080** — sign up with email/password.
+
+## Local dev (API on host)
+
+```bash
+docker compose up db -d
 dotnet run --project src/CityChecker.Api
 ```
 
-Authorized JS origin (Google only): `http://localhost:5097` (and/or `http://localhost:8080` for Docker).
+Open **http://localhost:5097**
 
-## API (auth required except `/api/config`, `POST /api/auth/register`, `POST /api/auth/login`)
-
-
-| Method | Path                                 | Notes                                       |
-| ------ | ------------------------------------ | ------------------------------------------- |
-| GET    | `/api/cities`                        | City list                                   |
-| GET    | `/api/cities/{id}/districts`         | District metadata (no geometry)             |
-| GET    | `/api/cities/{id}/aggregates`        | Batch city + all district/building averages |
-| GET    | `/api/cities/{id}/districts/geojson` | Leaflet-ready FeatureCollection             |
-| GET    | `/api/districts/{id}`                | District details                            |
-| POST   | `/api/admin/import/lodz-districts`   | Re-import CSV + polygons                    |
-| CRUD   | `/api/notes`                         | Notes                                       |
-| GET    | `/api/aggregates/...`                | Score averages                              |
-| POST   | `/api/buildings/reverse-geocode`     | Building from lat/lon                       |
-
-
-
-
-## Verify PostGIS (psql)
+## Deploy / update (VPS)
 
 ```bash
-docker-compose exec db psql -U citychecker -d citychecker -c "SELECT COUNT(*) FROM \"Districts\";"
-docker-compose exec db psql -U citychecker -d citychecker -c "SELECT Find_SRID('public','Districts','Geom');"
-docker-compose exec db psql -U citychecker -d citychecker -c "SELECT COUNT(*) FROM \"Districts\" WHERE NOT ST_IsValid(\"Geom\");"
-```
-
-
-
-## Housing decision tools
-
-After sign-in, open **Decide** on the map:
-
-- **Anchors** — place work/family points; district compare uses OSRM drive times  
-- **Compare** — shortlist/veto districts, amenity probe (Overpass), ranked table, CSV export  
-- **Offers** — pin rent/buy listings with monthly cost + deal scorecard  
-- **Finalists** — side-by-side matrix for 2–3 flats  
-- **Weights** — personal ranking weights (commute / quiet / price / green / comfort)
-
-District sheet actions: Shortlist, Veto, Probe amenities, Log visit, Add offer.
-
-## Update deploy (VPS)
-
-On the server (repo path e.g. `/opt/CityChecker`):
-
-```bash
-cd /opt/CityChecker
+cd /opt/CityChecker   # or your clone path
 git pull
 docker compose up --build -d
 docker compose ps
 curl -sI http://127.0.0.1:8080/
 ```
 
-Hard-refresh the browser after deploy. DB volume is kept; EF migrations run on API startup.
+Hard-refresh the browser after deploy. Migrations run on API startup; DB volume is kept.
 
-With HTTPS overlay:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
-```
-
-## Zoom behaviour
-
-
-| Zoom  | Mode                                   |
-| ----- | -------------------------------------- |
-| ≤ 10  | City                                   |
-| 11–14 | District / osiedle polygons            |
-| ≥ 15  | Building (map click → reverse geocode) |
-
-
-City click zooms to band 12 so districts load. Cities without imported districts are hidden on the map.
-
-## Production (HTTPS)
+### With HTTPS (Caddy)
 
 ```bash
 export DOMAIN=your.domain.com
 export ACME_EMAIL=you@example.com
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 ```
 
-Add `https://your.domain.com` to Google OAuth Authorized JavaScript origins. Caddy terminates TLS on 80/443 and proxies to the API.
+## Useful commands
 
-## Kraków / Warszawa
+```bash
+# logs
+docker compose logs -f api
 
-OSM dzielnice caches: `DataImports/krakow-districts-polygons.json`, `warszawa-districts-polygons.json` (18 each). Imported automatically on startup when that city has zero districts. Regenerate with `python DataImports/_fetch_krakow_warszawa.py`.
+# DB shell
+docker compose exec db psql -U citychecker -d citychecker
 
-## Files
+# district count
+docker compose exec db psql -U citychecker -d citychecker -c 'SELECT COUNT(*) FROM "Districts";'
 
-- `DataImports/Granice osiedli.csv` — Łódź open data (address lists per osiedle)
-- `DataImports/lodz-osiedla-polygons.json` — Łódź OSM osiedla
-- `DataImports/krakow-districts-polygons.json` / `warszawa-districts-polygons.json`
-- `src/CityChecker.Api` — API + `wwwroot` SPA
-- `docker-compose.prod.yml` + `Caddyfile.prod` — TLS overlay
+# rebuild after code change (local)
+dotnet build src/CityChecker.Api/CityChecker.Api.csproj
+```
 
+## Data files (before first Łódź import)
+
+- `DataImports/Granice osiedli.csv`
+- `DataImports/lodz-osiedla-polygons.json`
+
+Kraków/Warszawa polygon caches are imported automatically when those cities have no districts.
+
+---
+
+For architecture, API details, and AI-oriented context see **[AGENTS.md](AGENTS.md)**.

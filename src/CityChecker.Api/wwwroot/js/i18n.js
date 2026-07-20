@@ -8,7 +8,7 @@ export const i18n = {
     password: "Password",
     orGoogle: "or continue with Google",
     signOut: "Sign out",
-    selectPlace: "Select a place on the map",
+    selectPlace: "Tap map to select · drag pin to add note",
     addNote: "Add note",
     editNote: "Edit note",
     noteText: "Note",
@@ -34,6 +34,8 @@ export const i18n = {
     radiusMeters: "Radius (m)",
     pointNote: "Point note",
     dropPoint: "Drop point",
+    placeNoteFab: "Drag to map to add point note",
+    dragToPlaceNote: "Drag the teal pin on the map (bottom-right of the map area) to add a point note.",
     housingTools: "Decide",
     pickCityTitle: "Choose a city",
     pickCityHint: "You’ll work in one city at a time. You can switch later from the edge menu.",
@@ -124,7 +126,7 @@ export const i18n = {
     password: "Пароль",
     orGoogle: "или через Google",
     signOut: "Выйти",
-    selectPlace: "Выберите место на карте",
+    selectPlace: "Нажмите на карту · перетащите значок для новой заметки",
     addNote: "Добавить заметку",
     editNote: "Изменить заметку",
     noteText: "Заметка",
@@ -150,6 +152,8 @@ export const i18n = {
     radiusMeters: "Радиус (м)",
     pointNote: "Точка",
     dropPoint: "Поставить точку",
+    placeNoteFab: "Перетащите на карту, чтобы добавить точку",
+    dragToPlaceNote: "Перетащите бирюзовый значок на карте (справа внизу карты), чтобы добавить точку.",
     housingTools: "Решение",
     pickCityTitle: "Выберите город",
     pickCityHint: "Работаете в одном городе за раз. Сменить можно через меню с края экрана.",
@@ -258,6 +262,12 @@ export function applyI18n() {
   document.querySelectorAll("[data-i18n]").forEach((el) => {
     const key = el.getAttribute("data-i18n");
     el.textContent = t(key);
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-title");
+    const text = t(key);
+    el.setAttribute("title", text);
+    el.setAttribute("aria-label", text);
   });
   const btn = document.getElementById("lang-toggle");
   if (btn) btn.textContent = lang.toUpperCase();

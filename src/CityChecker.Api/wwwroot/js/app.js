@@ -32,6 +32,8 @@ let selectedDistrictId = null;
 let context = null;
 let editingNoteId = null;
 const DEFAULT_POINT_RADIUS = 300;
+const FAB_DRAG_MIN_PX = 8;
+const isCoarsePointer = () => window.matchMedia("(pointer: coarse)").matches;
 /** @type {AbortController | null} */
 let mapAbort = null;
 let moveTimer = null;
@@ -71,6 +73,102 @@ function currentMode(zoom) {
   if (zoom <= ZOOM_CITY) return "city";
   if (zoom <= ZOOM_DISTRICT) return "district";
   return "building";
+}
+
+function expandSheet() {
+  els.sheet.classList.add("expanded");
+}
+
+function lockedCityName() {
+  const c = cities.find((x) => x.cityId === lockedCityId);
+  return c?.name ?? t("selectPlace");
+}
+
+function setPlaceNoteFabVisible(visible) {
+  const fab = document.getElementById("place-note-fab");
+  if (!fab) return;
+  fab.classList.toggle("hidden", !visible);
+  if (visible) updatePlaceNoteFabLabel();
+}
+
+function updatePlaceNoteFabLabel() {
+  const fab = document.getElementById("place-note-fab");
+  if (!fab) return;
+  const label = t("placeNoteFab");
+  fab.setAttribute("aria-label", label);
+  fab.setAttribute("title", label);
+}
+
+async function clearSelection() {
+  if (!lockedCityId) return;
+  selectedDistrictId = null;
+  applyDistrictStyles();
+  context = { level: "City", cityId: lockedCityId, title: lockedCityName() };
+  document.getElementById("housing-district-slot").innerHTML = "";
+  expandSheet();
+  await refreshSheet();
+}
+
+function initPlaceNoteFab() {
+  const fab = document.getElementById("place-note-fab");
+  const ghost = document.getElementById("place-note-ghost");
+  const mapEl = document.getElementById("map");
+  if (!fab || !ghost || !mapEl || fab.dataset.wired) return;
+  fab.dataset.wired = "1";
+  updatePlaceNoteFabLabel();
+
+  let dragging = false;
+  let startX = 0;
+  let startY = 0;
+  let moved = false;
+
+  const moveGhost = (clientX, clientY) => {
+    ghost.style.left = `${clientX}px`;
+    ghost.style.top = `${clientY}px`;
+  };
+
+  fab.addEventListener("pointerdown", (e) => {
+    if (!lockedCityId) return;
+    e.preventDefault();
+    dragging = true;
+    moved = false;
+    startX = e.clientX;
+    startY = e.clientY;
+    fab.setPointerCapture(e.pointerId);
+    ghost.classList.remove("hidden");
+    document.body.classList.add("place-note-dragging");
+    moveGhost(e.clientX, e.clientY);
+  });
+
+  fab.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    if (Math.hypot(e.clientX - startX, e.clientY - startY) >= FAB_DRAG_MIN_PX) moved = true;
+    moveGhost(e.clientX, e.clientY);
+  });
+
+  const finishDrag = async (e) => {
+    if (!dragging) return;
+    dragging = false;
+    ghost.classList.add("hidden");
+    document.body.classList.remove("place-note-dragging");
+    try {
+      fab.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    if (!moved || !lockedCityId) return;
+
+    const rect = mapEl.getBoundingClientRect();
+    const { clientX: x, clientY: y } = e;
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
+
+    const latlng = map.containerPointToLatLng(L.point(x - rect.left, y - rect.top));
+    await placeNewPointNote(latlng);
+  };
+
+  fab.addEventListener("pointerup", finishDrag);
+  fab.addEventListener("pointercancel", finishDrag);
 }
 
 function updateZoomLabel() {
@@ -346,6 +444,7 @@ async function enterCity(city, { persist = true } = {}) {
   selectedDistrictId = null;
   mapShortlistIds = null;
   buildingLayer.clearLayers();
+  setPlaceNoteFabVisible(true);
   if (map.hasLayer(cityLayer)) map.removeLayer(cityLayer);
 
   hideCityPicker();
@@ -365,6 +464,8 @@ async function enterCity(city, { persist = true } = {}) {
   await loadDistricts(city.cityId);
   applyDistrictStyles();
   await loadPointNotes();
+  setPlaceNoteFabVisible(true);
+  updatePlaceNoteFabLabel();
 
   // Picker overlay was covering the map — size/center can be wrong until layout settles.
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -402,6 +503,7 @@ function initMap() {
   map.on("moveend", scheduleMapUpdate);
   map.on("click", onMapClick);
 
+  initPlaceNoteFab();
   initHousing({
     map,
     getActiveCityId: () => activeCityId,
@@ -468,7 +570,6 @@ async function onZoomOrMove() {
 function setDistrictInteractive(interactive) {
   applyDistrictStyles(interactive);
   if (!districtLayer) return;
-  // Normal clicks pass through so map can drop point notes; Shift+click selects district (housing).
   districtLayer.eachLayer((layer) => {
     const el = layer.getElement?.() || layer._path;
     if (el) el.style.pointerEvents = interactive ? "auto" : "none";
@@ -559,6 +660,7 @@ function clearDistricts() {
   selectedDistrictId = null;
   districtScores = {};
   buildingScores = {};
+  setPlaceNoteFabVisible(false);
 }
 
 async function refreshCityAggregates(cityId, signal) {
@@ -605,12 +707,7 @@ async function loadDistricts(cityId) {
       layer.on("click", (e) => {
         if (!lockedCityId) return;
         L.DomEvent.stopPropagation(e);
-        // Shift+click: housing / district sheet (avg + points). Plain click: drop point note.
-        if (e.originalEvent?.shiftKey) {
-          selectDistrict(feature.properties);
-        } else {
-          selectMapPoint(e.latlng);
-        }
+        selectDistrict(feature.properties);
       });
     },
   }).addTo(map);
@@ -627,6 +724,7 @@ async function loadPointNotes() {
   try {
     const notes = await api(`/api/notes?cityId=${cityId}&level=Point`);
     pointLayer.clearLayers();
+    const dotRadius = isCoarsePointer() ? 8 : 5;
     for (const n of notes) {
       if (n.lat == null || n.lon == null) continue;
       const color = scoreColor(n.scoreOverall);
@@ -642,7 +740,7 @@ async function loadPointNotes() {
       });
       pointLayer.addLayer(circle);
       const dot = L.circleMarker([n.lat, n.lon], {
-        radius: 5,
+        radius: dotRadius,
         color: "#1a2b33",
         fillColor: color,
         fillOpacity: 1,
@@ -650,7 +748,7 @@ async function loadPointNotes() {
       });
       dot.on("click", (e) => {
         L.DomEvent.stopPropagation(e);
-        openPointNote(n);
+        selectPointNote(n);
       });
       pointLayer.addLayer(dot);
     }
@@ -659,7 +757,7 @@ async function loadPointNotes() {
   }
 }
 
-async function openPointNote(n) {
+async function selectPointNote(n) {
   context = {
     level: "Point",
     cityId: n.targetCityId || lockedCityId || activeCityId,
@@ -674,12 +772,15 @@ async function openPointNote(n) {
     selectedDistrictId = n.targetDistrictId;
     applyDistrictStyles();
     await enrichDistrictSheet(n.targetDistrictId, document.getElementById("housing-district-slot"));
+  } else {
+    selectedDistrictId = null;
+    applyDistrictStyles();
   }
+  expandSheet();
   await refreshSheet();
-  openNoteForm(n);
 }
 
-async function selectMapPoint(latlng) {
+async function placeNewPointNote(latlng) {
   selectedDistrictId = null;
   applyDistrictStyles();
   context = {
@@ -692,10 +793,7 @@ async function selectMapPoint(latlng) {
     title: `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`,
   };
   document.getElementById("housing-district-slot").innerHTML = "";
-  els.sheetTitle.textContent = context.title;
-  els.addNoteBtn.classList.remove("hidden");
-  els.sheetMeta.textContent = "";
-  els.notesList.innerHTML = `<li class="empty-notes">${t("dropPoint")}</li>`;
+  expandSheet();
   openNoteForm();
 }
 
@@ -754,8 +852,7 @@ async function onMapClick(e) {
   }
   if (housingMapClick(e.latlng)) return;
   const mode = currentMode(map.getZoom());
-  // Locked city: empty-map click always drops a point (incl. building zoom).
-  // Building notes: click a building marker. Shift+click: reverse-geocode building.
+  // Shift+click empty map (building zoom): reverse-geocode building. Plain tap: clear selection.
   if (lockedCityId && e.originalEvent?.shiftKey && mode === "building") {
     els.sheetTitle.textContent = t("loading");
     try {
@@ -775,7 +872,7 @@ async function onMapClick(e) {
     return;
   }
   if (lockedCityId) {
-    await selectMapPoint(e.latlng);
+    await clearSelection();
     return;
   }
   if (mode === "city") {
@@ -797,6 +894,7 @@ async function selectDistrict(d) {
     districtId: selectedDistrictId,
     title: d.name,
   };
+  expandSheet();
   await refreshSheet();
   await enrichDistrictSheet(selectedDistrictId, document.getElementById("housing-district-slot"));
 }
@@ -811,6 +909,7 @@ async function selectBuilding(b) {
     buildingId: b.buildingId,
     title: b.addressLine,
   };
+  expandSheet();
   await refreshSheet();
   const slot = document.getElementById("housing-district-slot");
   slot.innerHTML = "";
@@ -876,7 +975,9 @@ async function refreshSheet() {
         : "";
 
     if (!list.length) {
-      els.notesList.innerHTML = `<li class="empty-notes">${t("noNotes")}</li>`;
+      const emptyHint =
+        context.level === "City" ? t("dragToPlaceNote") : t("noNotes");
+      els.notesList.innerHTML = `<li class="empty-notes">${emptyHint}</li>`;
       return;
     }
 
@@ -1010,6 +1111,7 @@ els.form.addEventListener("submit", async (e) => {
 document.getElementById("lang-toggle").addEventListener("click", () => {
   toggleLang();
   updateZoomLabel();
+  updatePlaceNoteFabLabel();
   if (context) refreshSheet();
 });
 
