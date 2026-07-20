@@ -118,6 +118,11 @@ export const i18n = {
     noFinalists: "No finalists yet.",
     weightsHint: "Weights for district ranking (relative).",
     weightsSaved: "Weights saved",
+    voiceInputStart: "Voice input (Russian)",
+    voiceInputStop: "Stop listening",
+    voiceListening: "Listening…",
+    voiceDenied: "Microphone access denied",
+    voiceError: "Voice input failed",
   },
   ru: {
     appTitle: "Карта комфорта городов Польши",
@@ -238,6 +243,11 @@ export const i18n = {
     noFinalists: "Финал пуст.",
     weightsHint: "Веса для ранжирования районов.",
     weightsSaved: "Веса сохранены",
+    voiceInputStart: "Голосовой ввод (русский)",
+    voiceInputStop: "Остановить запись",
+    voiceListening: "Говорите…",
+    voiceDenied: "Нет доступа к микрофону",
+    voiceError: "Ошибка голосового ввода",
   },
 };
 

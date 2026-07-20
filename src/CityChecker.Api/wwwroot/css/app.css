@@ -490,6 +490,35 @@ body.place-note-dragging .leaflet-container { pointer-events: none; }
   padding: 0.5rem 0.6rem;
   background: #fff;
 }
+.note-text-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+.note-text-wrap textarea {
+  flex: 1;
+  min-width: 0;
+}
+.note-voice-btn {
+  flex-shrink: 0;
+  padding: 0.45rem;
+  line-height: 0;
+}
+.note-voice-btn.listening {
+  color: var(--accent);
+  border-color: var(--accent);
+  animation: voice-pulse 1.2s ease-in-out infinite;
+}
+@keyframes voice-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.note-voice-status {
+  font-size: 0.8rem;
+  color: var(--accent);
+  min-height: 1.1em;
+}
+.note-voice-status.is-error { color: #b54a4a; }
 .note-dialog input[type="range"] { width: 100%; accent-color: var(--accent); }
 .criteria-grid {
   display: grid;

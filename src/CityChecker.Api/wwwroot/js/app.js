@@ -1,6 +1,7 @@
 import { api, getToken, setToken, clearToken, isTokenExpired } from "./api.js";
 import { applyI18n, t, toggleLang } from "./i18n.js";
 import { initHousing, housingMapClick, enrichDistrictSheet } from "./housing.js";
+import { createRuVoiceInput, isVoiceInputSupported } from "./voice-input.js";
 
 const ZOOM_CITY = 10;
 const ZOOM_DISTRICT = 14;
@@ -60,7 +61,71 @@ const els = {
   scoreOverall: document.getElementById("score-overall"),
   scoreOverallOut: document.getElementById("score-overall-out"),
   dialogTitle: document.getElementById("note-dialog-title"),
+  noteVoiceBtn: document.getElementById("note-voice-btn"),
+  noteVoiceStatus: document.getElementById("note-voice-status"),
 };
+
+/** @type {ReturnType<typeof createRuVoiceInput> | null} */
+let noteVoice = null;
+
+function resetNoteVoiceUi() {
+  els.noteVoiceBtn?.classList.remove("listening");
+  els.noteVoiceBtn?.setAttribute("aria-pressed", "false");
+  if (els.noteVoiceBtn) {
+    els.noteVoiceBtn.setAttribute("title", t("voiceInputStart"));
+    els.noteVoiceBtn.setAttribute("aria-label", t("voiceInputStart"));
+  }
+  if (els.noteVoiceStatus) {
+    els.noteVoiceStatus.textContent = "";
+    els.noteVoiceStatus.classList.add("hidden");
+    els.noteVoiceStatus.classList.remove("is-error");
+  }
+}
+
+function updateNoteVoiceUi(listening, interim = "") {
+  if (!els.noteVoiceBtn) return;
+  els.noteVoiceBtn.classList.toggle("listening", listening);
+  els.noteVoiceBtn.setAttribute("aria-pressed", listening ? "true" : "false");
+  const titleKey = listening ? "voiceInputStop" : "voiceInputStart";
+  els.noteVoiceBtn.setAttribute("title", t(titleKey));
+  els.noteVoiceBtn.setAttribute("aria-label", t(titleKey));
+  if (!els.noteVoiceStatus) return;
+  if (listening) {
+    els.noteVoiceStatus.classList.remove("hidden", "is-error");
+    els.noteVoiceStatus.textContent = interim ? `${t("voiceListening")} ${interim}` : t("voiceListening");
+  } else if (!els.noteVoiceStatus.classList.contains("is-error")) {
+    els.noteVoiceStatus.textContent = "";
+    els.noteVoiceStatus.classList.add("hidden");
+  }
+}
+
+function stopNoteVoice() {
+  noteVoice?.stop();
+  resetNoteVoiceUi();
+}
+
+if (isVoiceInputSupported() && els.noteText) {
+  noteVoice = createRuVoiceInput(els.noteText, {
+    onListening: (listening) => updateNoteVoiceUi(listening),
+    onInterim: (text) => {
+      if (noteVoice?.isListening()) updateNoteVoiceUi(true, text);
+    },
+    onError: (code) => {
+      if (!els.noteVoiceStatus) return;
+      els.noteVoiceStatus.classList.remove("hidden");
+      els.noteVoiceStatus.classList.add("is-error");
+      els.noteVoiceStatus.textContent = code === "not-allowed" ? t("voiceDenied") : t("voiceError");
+      els.noteVoiceBtn?.classList.remove("listening");
+      els.noteVoiceBtn?.setAttribute("aria-pressed", "false");
+      els.noteVoiceBtn?.setAttribute("title", t("voiceInputStart"));
+      els.noteVoiceBtn?.setAttribute("aria-label", t("voiceInputStart"));
+    },
+  });
+  els.noteVoiceBtn?.classList.remove("hidden");
+  els.noteVoiceBtn?.addEventListener("click", () => noteVoice?.toggle());
+}
+
+els.dialog?.addEventListener("close", () => stopNoteVoice());
 
 function scoreColor(score) {
   if (score == null) return "#9aadb6";
@@ -1156,6 +1221,7 @@ function openNoteForm(note = null) {
   if (showRadius) {
     radiusInput.value = note?.radiusMeters ?? context?.radiusMeters ?? DEFAULT_POINT_RADIUS;
   }
+  stopNoteVoice();
   document.getElementById("place-note-fab")?.classList.add("hidden");
   els.dialog.showModal();
 }
@@ -1171,7 +1237,10 @@ els.scoreOverall.addEventListener("input", () => {
 });
 
 els.addNoteBtn.addEventListener("click", () => openNoteForm());
-document.getElementById("note-cancel").addEventListener("click", () => els.dialog.close());
+document.getElementById("note-cancel").addEventListener("click", () => {
+  stopNoteVoice();
+  els.dialog.close();
+});
 
 els.form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -1207,6 +1276,7 @@ els.form.addEventListener("submit", async (e) => {
   } else {
     saved = await api("/api/notes", { method: "POST", body: JSON.stringify(body) });
   }
+  stopNoteVoice();
   els.dialog.close();
   editingNoteId = null;
   formPointCoords = null;
@@ -1231,6 +1301,14 @@ document.getElementById("lang-toggle").addEventListener("click", () => {
   updateZoomLabel();
   updatePlaceNoteFabLabel();
   updateSheetHandleAria();
+  if (noteVoice?.isListening()) updateNoteVoiceUi(true);
+  else if (els.noteVoiceStatus?.classList.contains("is-error")) {
+    // keep error text; refresh button labels only
+    if (els.noteVoiceBtn) {
+      els.noteVoiceBtn.setAttribute("title", t("voiceInputStart"));
+      els.noteVoiceBtn.setAttribute("aria-label", t("voiceInputStart"));
+    }
+  } else resetNoteVoiceUi();
   if (context) refreshSheet();
 });
 
