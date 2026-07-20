@@ -1,9 +1,10 @@
-# Production: Caddy on 80/443 → api:8080 (internal). Do not publish API port publicly.
+# Production: Caddy 80/443 (host Certbot certs) → api:8080 internal.
 #
-#   cp .env.example .env   # set DOMAIN=ujeen.pl, ACME_EMAIL, AUTH_JWT_SECRET, …
+#   cp .env.example .env
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 #
-# DNS: A/AAAA for ujeen.pl and www.ujeen.pl → this host. Open firewall 80/443; block 8080.
+# Certs on host: /etc/letsencrypt/live/ujeen.pl/{fullchain.pem,privkey.pem}
+# After certbot renew: docker compose … exec caddy caddy reload --config /etc/caddy/Caddyfile
 
 services:
   api:
@@ -28,16 +29,9 @@ services:
       - "443:443"
     environment:
       DOMAIN: ${DOMAIN:-ujeen.pl}
-      ACME_EMAIL: ${ACME_EMAIL:-}
-      SERVER_IP: ${SERVER_IP:-}
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - api
     restart: unless-stopped
-
-volumes:
-  caddy_data:
-  caddy_config:

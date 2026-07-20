@@ -1,10 +1,8 @@
-# Set DOMAIN and ACME_EMAIL in .env (see .env.example).
-
-{
-	email {$ACME_EMAIL}
-}
+# TLS: host Certbot certs mounted at /etc/letsencrypt (see docker-compose.prod.yml).
+# Renew on host, then: docker compose … exec caddy caddy reload --config /etc/caddy/Caddyfile
 
 {$DOMAIN:ujeen.pl}, www.{$DOMAIN:ujeen.pl} {
+	tls /etc/letsencrypt/live/{$DOMAIN:ujeen.pl}/fullchain.pem /etc/letsencrypt/live/{$DOMAIN:ujeen.pl}/privkey.pem
 	encode gzip
 	reverse_proxy api:8080 {
 		header_up Host {host}
@@ -12,4 +10,8 @@
 		header_up X-Forwarded-Proto {scheme}
 		header_up X-Forwarded-For {remote_ip}
 	}
+}
+
+http://{$DOMAIN:ujeen.pl}, http://www.{$DOMAIN:ujeen.pl} {
+	redir https://{host}{uri} permanent
 }
