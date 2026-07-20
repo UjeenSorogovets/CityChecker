@@ -114,12 +114,13 @@ body {
 #map { height: 100%; width: 100%; touch-action: none; }
 
 .place-note-fab {
-  position: absolute;
-  right: 1rem;
-  bottom: calc(45% + 1rem);
-  z-index: 1200;
-  width: 3.25rem;
-  height: 3.25rem;
+  position: fixed;
+  right: max(1rem, env(safe-area-inset-right, 0px));
+  /* Above bottom sheet (~45dvh); z-index beats .sheet (900) */
+  bottom: calc(45dvh + max(0.75rem, env(safe-area-inset-bottom, 0px)));
+  z-index: 950;
+  width: 3.5rem;
+  height: 3.5rem;
   border: 2px solid #fff;
   border-radius: 50%;
   background: var(--accent);
@@ -540,7 +541,12 @@ body.place-note-dragging .leaflet-container { pointer-events: none; }
   }
   .topbar { grid-column: 1 / -1; }
   .map-wrap { grid-column: 1; }
-  .place-note-fab { bottom: 1.5rem; }
+  .place-note-fab {
+    width: 3.25rem;
+    height: 3.25rem;
+    bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+    right: calc(360px + 1rem);
+  }
   .sheet {
     position: relative;
     max-height: none;
