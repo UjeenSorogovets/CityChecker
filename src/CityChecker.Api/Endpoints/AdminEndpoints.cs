@@ -25,5 +25,24 @@ public static class AdminEndpoints
                 return Results.Problem(ex.Message, statusCode: 500);
             }
         }).RequireAuthorization();
+
+        app.MapPost("/api/admin/refresh-environment/{cityId:guid}", async (
+            Guid cityId,
+            ClaimsPrincipal user,
+            IConfiguration config,
+            EnvironmentService env,
+            CancellationToken ct) =>
+        {
+            if (user.EnsureOwner(config) is { } err) return err;
+            try
+            {
+                var dto = await env.GetOrComputeAsync(cityId, forceRefresh: true, ct);
+                return Results.Ok(new { dto.ComputedAt, districtCount = dto.Districts.Count });
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem(ex.Message, statusCode: 500);
+            }
+        }).RequireAuthorization();
     }
 }

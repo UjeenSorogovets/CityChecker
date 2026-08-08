@@ -8,6 +8,7 @@ const ZOOM_DISTRICT = 14;
 const ZOOM_INTO_DISTRICT = 12;
 const LOCKED_MIN_ZOOM = 11;
 const CITY_STORAGE_KEY = "cc_city_id";
+const MAP_MODE_KEY = "cc_map_mode";
 const POLAND_CENTER = [52.1, 19.4];
 // Tight mainland Poland frame (Leaflet [lat, lon])
 const POLAND_VIEW_BOUNDS = L.latLngBounds([49.05, 14.15], [54.85, 24.15]);
@@ -23,6 +24,8 @@ let districtLayer = null;
 let buildingLayer = L.layerGroup();
 /** @type {L.LayerGroup} */
 let pointLayer = L.layerGroup();
+/** @type {L.LayerGroup} */
+let riskSourceLayer = L.layerGroup();
 
 let cities = [];
 let activeCityId = null;
@@ -32,6 +35,8 @@ let lockedCityId = null;
 let selectedDistrictId = null;
 let context = null;
 let editingNoteId = null;
+/** @type {"comfort"|"environment"} */
+let mapMode = localStorage.getItem(MAP_MODE_KEY) === "environment" ? "environment" : "comfort";
 const DEFAULT_POINT_RADIUS = 300;
 const FAB_DRAG_MIN_PX = 8;
 const SHEET_DRAG_THRESHOLD = 40;
@@ -39,11 +44,17 @@ const SHEET_SNAP_ORDER = ["peek", "half", "full"];
 const isCoarsePointer = () => window.matchMedia("(pointer: coarse)").matches;
 /** @type {AbortController | null} */
 let mapAbort = null;
+/** Bumps when a newer environment load starts — ignore stale responses. */
+let envLoadGen = 0;
 let moveTimer = null;
 /** @type {Record<string, number|null>} */
 let districtScores = {};
 /** @type {Record<string, number|null>} */
 let buildingScores = {};
+/** @type {Record<string, number|null>} */
+let environmentScores = {};
+/** @type {Record<string, object>} */
+let environmentDetails = {};
 
 const els = {
   authGate: document.getElementById("auth-gate"),
@@ -63,6 +74,7 @@ const els = {
   dialogTitle: document.getElementById("note-dialog-title"),
   noteVoiceBtn: document.getElementById("note-voice-btn"),
   noteVoiceStatus: document.getElementById("note-voice-status"),
+  mapModeToggle: document.getElementById("map-mode-toggle"),
 };
 
 /** @type {ReturnType<typeof createRuVoiceInput> | null} */
@@ -134,6 +146,278 @@ function scoreColor(score) {
   const g = Math.round(58 + (110 - 58) * tNorm);
   const b = Math.round(58 + (110 - 58) * tNorm);
   return `rgb(${r},${g},${b})`;
+}
+
+/** Environment risk 1–10: high = red (inverted comfort scale). */
+function riskColor(risk) {
+  if (risk == null) return "#9aadb6";
+  return scoreColor(11 - risk);
+}
+
+function districtFillColor(feature) {
+  const id = districtIdOf(feature);
+  if (mapMode === "environment") {
+    return riskColor(id != null ? environmentScores[id] ?? null : null);
+  }
+  return scoreColor(feature?.properties?.score);
+}
+
+function updateMapModeToggle() {
+  const btn = els.mapModeToggle;
+  if (!btn) return;
+  const key = mapMode === "environment" ? "mapModeEnvironment" : "mapModeComfort";
+  btn.textContent = t(key);
+  btn.setAttribute("data-i18n", key);
+  btn.classList.toggle("map-mode-env", mapMode === "environment");
+  btn.title = mapMode === "environment" ? t("mapModeSwitchComfort") : t("mapModeSwitchEnv");
+  btn.setAttribute("aria-label", btn.title);
+  document.getElementById("env-legend")?.classList.toggle("hidden", mapMode !== "environment");
+}
+
+function setMapMode(mode) {
+  mapMode = mode === "environment" ? "environment" : "comfort";
+  localStorage.setItem(MAP_MODE_KEY, mapMode);
+  updateMapModeToggle();
+  applyDistrictStyles();
+  updateRiskSourceVisibility();
+  // ponytail: env load is async and can be aborted by district reload — retry on toggle
+  if (mapMode === "environment" && lockedCityId) {
+    const cityId = lockedCityId;
+    loadEnvironment(cityId).then(() => {
+      if (lockedCityId !== cityId) return;
+      applyDistrictStyles();
+      updateRiskSourceVisibility();
+      if (context?.level === "District" && context.districtId) refreshSheet();
+    });
+  } else if (context?.level === "District") {
+    refreshSheet();
+  }
+}
+
+function ensureRiskPane() {
+  if (!map) return;
+  if (!map.getPane("risk")) {
+    const pane = map.createPane("risk");
+    pane.style.zIndex = 650; // above markers (~600) so rings/dots aren't under district UI
+  }
+  map.getPane("risk").style.pointerEvents = "auto";
+}
+
+function updateRiskSourceVisibility() {
+  if (!map) return;
+  ensureRiskPane();
+  const show =
+    mapMode === "environment" &&
+    lockedCityId &&
+    currentMode(map.getZoom()) === "district";
+  if (show) {
+    if (!map.hasLayer(riskSourceLayer)) riskSourceLayer.addTo(map);
+    // ponytail: L.LayerGroup has no bringToFront (throws and aborted env load)
+  } else if (map.hasLayer(riskSourceLayer)) {
+    map.removeLayer(riskSourceLayer);
+  }
+}
+
+function loadRiskSources(geojson) {
+  riskSourceLayer.clearLayers();
+  if (!map) return;
+  ensureRiskPane();
+  const features = geojson?.features;
+  if (!Array.isArray(features) || !features.length) {
+    updateRiskSourceVisibility();
+    return;
+  }
+
+  const colors = {
+    landfill: "#e65100",
+    waste_incinerator: "#c62828",
+    waste_transfer: "#ef6c00",
+    factory: "#6a1b9a",
+    power_plant: "#4527a0",
+    airport: "#1565c0",
+  };
+
+  // Prefer curated / high-weight rings so the map stays readable
+  const ringFeatures = features
+    .filter((f) => {
+      const p = f.properties || {};
+      const km = Number(p.influenceKm);
+      const show = p.showRing === true || p.showRing === "true";
+      return show && km > 0 && f.geometry?.coordinates?.length >= 2;
+    })
+    .sort((a, b) => {
+      const ca = a.properties?.curated === true ? 1 : 0;
+      const cb = b.properties?.curated === true ? 1 : 0;
+      if (cb !== ca) return cb - ca;
+      return (Number(b.properties?.weight) || 0) - (Number(a.properties?.weight) || 0);
+    })
+    .slice(0, 20);
+
+  for (const f of ringFeatures) {
+    const p = f.properties || {};
+    const coords = f.geometry.coordinates;
+    const latlng = L.latLng(coords[1], coords[0]);
+    const type = p.type || "landfill";
+    const color = colors[type] || "#e65100";
+    const meters = Number(p.influenceKm) * 1000;
+    // Full circle = rough possible reach (light). Wedge = usual downwind plume.
+    L.circle(latlng, {
+      pane: "risk",
+      radius: meters,
+      color,
+      weight: 1.5,
+      dashArray: "6 8",
+      fillColor: color,
+      fillOpacity: 0.05,
+      opacity: 0.45,
+      interactive: false,
+      className: "env-influence-ring",
+    }).addTo(riskSourceLayer);
+
+    const bearing = Number(p.windBearing);
+    if (Number.isFinite(bearing)) {
+      L.polygon(windWedgeLatLngs(latlng, meters * 0.95, bearing, 38), {
+        pane: "risk",
+        color,
+        weight: 2,
+        fillColor: color,
+        fillOpacity: 0.28,
+        opacity: 0.75,
+        interactive: false,
+        className: "env-wind-wedge",
+      }).addTo(riskSourceLayer);
+    }
+  }
+
+  const markerFeatures = {
+    type: "FeatureCollection",
+    features: features.filter((f) => {
+      const typ = f.properties?.type;
+      if (typ === "rail") return false;
+      if (typ === "factory" || typ === "power_plant") {
+        return f.properties?.showRing === true || f.properties?.showRing === "true" || Number(f.properties?.influenceKm) > 0;
+      }
+      return typ === "landfill" || typ === "waste_incinerator" || typ === "waste_transfer" || typ === "airport";
+    }),
+  };
+
+  L.geoJSON(markerFeatures, {
+    pane: "risk",
+    pointToLayer: (feature, latlng) => {
+      const type = feature.properties?.type || "landfill";
+      const color = colors[type] || "#e65100";
+      const r = type === "waste_incinerator" || type === "power_plant" ? 11 : type === "airport" ? 8 : 7;
+      return L.circleMarker(latlng, {
+        pane: "risk",
+        radius: r,
+        color: "#fff",
+        weight: 2,
+        fillColor: color,
+        fillOpacity: 1,
+        interactive: true,
+      });
+    },
+    onEachFeature: (feature, layer) => {
+      const p = feature.properties || {};
+      const typeKey = {
+        landfill: "envLandfill",
+        waste_incinerator: "envIncinerator",
+        waste_transfer: "envWasteTransfer",
+        factory: "envIndustrial",
+        power_plant: "envPowerPlant",
+        airport: "envAirport",
+      }[p.type] || null;
+      const typeLabel = typeKey ? t(typeKey) : p.type || "";
+      const lines = [`<strong>${p.name || typeLabel}</strong>`, `<small>${typeLabel}</small>`];
+      if (p.influenceKm > 0) {
+        lines.push(`<small>${t("envInfluence")}: ~${p.influenceKm} km</small>`);
+      }
+      if (p.windFrom && p.windTo) {
+        lines.push(`<small>${t("envWindPlume")}: ${p.windFrom} → ${p.windTo}</small>`);
+      }
+      if (p.notes) lines.push(`<small>${p.notes}</small>`);
+      if (p.curated === true) lines.push(`<small>${t("envCurated")}</small>`);
+      layer.bindPopup(lines.join("<br>"));
+    },
+  }).addTo(riskSourceLayer);
+
+  updateRiskSourceVisibility();
+}
+
+/** Arc wedge in the DOWNWIND / plume direction (bearing = where pollution usually goes). */
+function windWedgeLatLngs(center, radiusM, bearingDeg, halfAngleDeg) {
+  const pts = [center];
+  const start = bearingDeg - halfAngleDeg;
+  const end = bearingDeg + halfAngleDeg;
+  const steps = 12;
+  for (let i = 0; i <= steps; i++) {
+    const a = start + ((end - start) * i) / steps;
+    pts.push(destinationLatLng(center, radiusM, a));
+  }
+  return pts;
+}
+
+function destinationLatLng(from, distM, bearingDeg) {
+  const R = 6371000;
+  const δ = distM / R;
+  const θ = (bearingDeg * Math.PI) / 180;
+  const φ1 = (from.lat * Math.PI) / 180;
+  const λ1 = (from.lng * Math.PI) / 180;
+  const φ2 = Math.asin(Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ));
+  const λ2 =
+    λ1 +
+    Math.atan2(Math.sin(θ) * Math.sin(δ) * Math.cos(φ1), Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2));
+  return L.latLng((φ2 * 180) / Math.PI, (λ2 * 180) / Math.PI);
+}
+
+async function loadEnvironment(cityId) {
+  // ponytail: do not share mapAbort — district reload was wiping env mid-fetch
+  const gen = ++envLoadGen;
+  try {
+    const env = await api(`/api/cities/${cityId}/environment`);
+    if (gen !== envLoadGen || lockedCityId !== cityId) return;
+    const nextScores = {};
+    const nextDetails = {};
+    for (const d of env.districts || []) {
+      const id = d.districtId != null ? String(d.districtId) : null;
+      if (!id) continue;
+      nextScores[id] = d.envRiskOverall;
+      nextDetails[id] = d;
+    }
+    environmentScores = nextScores;
+    environmentDetails = nextDetails;
+    try {
+      loadRiskSources(env.sources);
+    } catch (ringErr) {
+      console.warn("risk sources failed", ringErr);
+    }
+    applyDistrictStyles();
+    updateRiskSourceVisibility();
+  } catch (e) {
+    if (e?.name === "AbortError") return;
+    if (gen !== envLoadGen) return;
+    console.warn("environment load failed", e);
+  }
+}
+
+function formatEnvMeta(districtId) {
+  if (districtId == null) return mapMode === "environment" ? t("envNoData") : "";
+  const d = environmentDetails[String(districtId)];
+  if (!d) {
+    if (mapMode !== "environment") return "";
+    return Object.keys(environmentDetails).length ? t("envNoData") : t("loading");
+  }
+  const parts = [`${t("envRisk")}: ${d.envRiskOverall}/10`];
+  if (d.nearestLandfillKm != null) {
+    let line = `${t("envLandfill")} ${d.nearestLandfillKm} km`;
+    if (d.landfillDownwind) line += ` (${t("envLandfillDownwind")})`;
+    parts.push(line);
+  }
+  if (d.nearestRailKm != null) parts.push(`${t("envRail")} ${d.nearestRailKm} km`);
+  if (d.nearestAirportKm != null) parts.push(`${t("envAirport")} ${d.nearestAirportKm} km`);
+  if (d.nearestIndustrialKm != null) parts.push(`${t("envIndustrial")} ${d.nearestIndustrialKm} km`);
+  if (d.nearestHighwayKm != null) parts.push(`${t("envHighway")} ${d.nearestHighwayKm} km`);
+  return parts.join(" · ");
 }
 
 function currentMode(zoom) {
@@ -676,6 +960,8 @@ function initMap() {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }).addTo(map);
 
+  ensureRiskPane();
+
   cityLayer.addTo(map);
   buildingLayer.addTo(map);
   pointLayer.addTo(map);
@@ -683,6 +969,11 @@ function initMap() {
   map.on("zoomend", scheduleMapUpdate);
   map.on("moveend", scheduleMapUpdate);
   map.on("click", onMapClick);
+
+  updateMapModeToggle();
+  els.mapModeToggle?.addEventListener("click", () => {
+    setMapMode(mapMode === "environment" ? "comfort" : "environment");
+  });
 
   initPlaceNoteFab();
   initHousing({
@@ -738,10 +1029,10 @@ async function onZoomOrMove() {
   }
 
   setDistrictInteractive(mode === "district" || mode === "city");
+  updateRiskSourceVisibility();
   if (mode === "building") {
     await loadBuildingMarkers();
     await loadPointNotes();
-    pointLayer.bringToFront();
   } else {
     buildingLayer.clearLayers();
     await loadPointNotes();
@@ -769,13 +1060,13 @@ function districtBaseStyle(feature, interactive) {
   const selected = selectedDistrictId != null && id === selectedDistrictId;
   const dimOthers = selectedDistrictId != null && !selected;
   const filteredOut = mapShortlistIds != null && id != null && !mapShortlistIds.has(String(id));
-  const score = feature?.properties?.score;
+  const fill = districtFillColor(feature);
 
   if (filteredOut) {
     return {
       color: "#b0bec5",
       weight: 0.8,
-      fillColor: scoreColor(score),
+      fillColor: fill,
       fillOpacity: 0.06,
       opacity: 0.25,
       lineJoin: "round",
@@ -787,7 +1078,7 @@ function districtBaseStyle(feature, interactive) {
     return {
       color: "#0a5c5c",
       weight: 3.5,
-      fillColor: scoreColor(score),
+      fillColor: fill,
       fillOpacity: 0.62,
       opacity: 1,
       lineJoin: "round",
@@ -799,7 +1090,7 @@ function districtBaseStyle(feature, interactive) {
   return {
     color: dimOthers ? "#7a8f99" : "#1a2b33",
     weight: interactive ? 1.4 : 1,
-    fillColor: scoreColor(score),
+    fillColor: fill,
     fillOpacity: interactive ? (dimOthers ? 0.2 : 0.42) : 0.14,
     opacity: dimOthers ? 0.5 : 0.9,
     lineJoin: "round",
@@ -836,11 +1127,15 @@ function clearDistricts() {
     map.removeLayer(districtLayer);
     districtLayer = null;
   }
+  riskSourceLayer.clearLayers();
+  if (map?.hasLayer(riskSourceLayer)) map.removeLayer(riskSourceLayer);
   pointLayer.clearLayers();
   activeCityId = null;
   selectedDistrictId = null;
   districtScores = {};
   buildingScores = {};
+  environmentScores = {};
+  environmentDetails = {};
   setPlaceNoteFabVisible(false);
 }
 
@@ -894,7 +1189,15 @@ async function loadDistricts(cityId) {
   }).addTo(map);
 
   applyDistrictStyles();
-  pointLayer.bringToFront();
+
+  // Environment may hit Overpass on first load (~10–60s); don't block district paint.
+  // Uses its own gen-counter (not mapAbort) so moveend/district reload can't wipe it.
+  loadEnvironment(cityId).then(() => {
+    if (activeCityId !== cityId) return;
+    applyDistrictStyles();
+    updateRiskSourceVisibility();
+    if (context?.level === "District" && context.districtId) refreshSheet();
+  });
   // Do not fitBounds here: on a short mobile viewport it can zoom out past ZOOM_CITY,
   // clear districts, reload, and loop. City tap already setView()'d into the band.
 }
@@ -1153,6 +1456,12 @@ async function refreshSheet() {
       agg.noteCount > 0 && agg.scoreOverall != null
         ? `${t("avgScore")}: ${agg.scoreOverall.toFixed(1)} (${agg.noteCount})`
         : "";
+    if (context.level === "District" && context.districtId) {
+      const envLine = formatEnvMeta(context.districtId);
+      els.sheetMeta.textContent = els.sheetMeta.textContent
+        ? `${els.sheetMeta.textContent} · ${envLine}`
+        : envLine;
+    }
 
     if (!list.length) {
       const emptyHint =
@@ -1301,6 +1610,7 @@ document.getElementById("lang-toggle").addEventListener("click", () => {
   updateZoomLabel();
   updatePlaceNoteFabLabel();
   updateSheetHandleAria();
+  updateMapModeToggle();
   if (noteVoice?.isListening()) updateNoteVoiceUi(true);
   else if (els.noteVoiceStatus?.classList.contains("is-error")) {
     // keep error text; refresh button labels only

@@ -16,6 +16,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<HousingOffer> HousingOffers => Set<HousingOffer>();
     public DbSet<DecisionProfile> DecisionProfiles => Set<DecisionProfile>();
     public DbSet<DistrictImportRaw> DistrictsImportRaw => Set<DistrictImportRaw>();
+    public DbSet<DistrictEnvironment> DistrictEnvironments => Set<DistrictEnvironment>();
+    public DbSet<CityEnvironmentSources> CityEnvironmentSources => Set<CityEnvironmentSources>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -135,6 +137,22 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(x => x.TargetBuildingId);
             e.HasIndex(x => x.AuthorGoogleId);
             e.HasIndex(x => new { x.Lat, x.Lon });
+        });
+
+        modelBuilder.Entity<DistrictEnvironment>(e =>
+        {
+            e.HasKey(x => x.DistrictId);
+            e.HasOne(x => x.District).WithOne().HasForeignKey<DistrictEnvironment>(x => x.DistrictId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.ComputedAt);
+        });
+
+        modelBuilder.Entity<CityEnvironmentSources>(e =>
+        {
+            e.HasKey(x => x.CityId);
+            e.Property(x => x.SourcesGeoJson).IsRequired();
+            e.HasOne(x => x.City).WithOne().HasForeignKey<CityEnvironmentSources>(x => x.CityId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

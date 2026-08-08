@@ -50,6 +50,10 @@ builder.Services.Configure<NominatimOptions>(builder.Configuration.GetSection(No
 builder.Services.Configure<ImportOptions>(builder.Configuration.GetSection(ImportOptions.Section));
 builder.Services.AddHttpClient<NominatimClient>();
 builder.Services.AddHttpClient<HousingGeoService>();
+builder.Services.AddHttpClient<EnvironmentService>(c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(90);
+});
 builder.Services.AddScoped<BuildingService>();
 builder.Services.AddScoped<AggregateService>();
 builder.Services.AddScoped<LodzDistrictImportService>();

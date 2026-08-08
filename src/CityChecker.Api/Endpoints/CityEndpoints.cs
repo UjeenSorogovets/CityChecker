@@ -3,6 +3,7 @@ using System.Text.Json;
 using CityChecker.Api.Auth;
 using CityChecker.Api.Data;
 using CityChecker.Api.Dtos;
+using CityChecker.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace CityChecker.Api.Endpoints;
@@ -35,6 +36,18 @@ public static class CityEndpoints
                     c.Districts.Count))
                 .FirstOrDefaultAsync();
             return city is null ? Results.NotFound() : Results.Ok(city);
+        });
+
+        group.MapGet("/{cityId:guid}/environment", async (
+            Guid cityId,
+            ClaimsPrincipal user,
+            IConfiguration config,
+            EnvironmentService env,
+            CancellationToken ct) =>
+        {
+            if (user.EnsureOwner(config) is { } err) return err;
+            var dto = await env.GetOrComputeAsync(cityId, forceRefresh: false, ct);
+            return Results.Ok(dto);
         });
     }
 }

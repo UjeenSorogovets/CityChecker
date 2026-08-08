@@ -54,6 +54,7 @@
       </div>
       <div class="topbar-actions">
         <span id="zoom-mode" class="zoom-mode"></span>
+        <button type="button" id="map-mode-toggle" class="btn ghost" data-i18n="mapModeComfort">Comfort</button>
         <button type="button" id="housing-toggle" class="btn ghost" data-i18n="housingTools">Decide</button>
         <button type="button" id="lang-toggle" class="btn ghost" aria-label="Language">EN</button>
         <button type="button" id="sign-out" class="btn ghost" data-i18n="signOut">Sign out</button>
@@ -69,6 +70,13 @@
       </aside>
       <div id="city-drawer-scrim" class="city-drawer-scrim hidden"></div>
       <div id="map"></div>
+      <div id="env-legend" class="env-legend hidden" aria-hidden="true">
+        <div class="env-legend-title" data-i18n="envLegendTitle">Environment layer</div>
+        <div><span class="env-swatch landfill"></span> <span data-i18n="envLandfill">Landfill</span></div>
+        <div><span class="env-swatch incinerator"></span> <span data-i18n="envIncinerator">Incinerator</span></div>
+        <div><span class="env-swatch factory"></span> <span data-i18n="envIndustrial">Industry</span></div>
+        <div class="env-legend-hint" data-i18n="envLegendHint">Light dashed ring ≈ possible reach. Filled wedge ≈ usual downwind plume (odor/emissions).</div>
+      </div>
       <aside id="housing-panel" class="housing-panel">
         <div class="housing-tabs">
           <button type="button" class="auth-tab active" data-htab="anchors" data-i18n="anchors">Anchors</button>
@@ -169,6 +177,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/js/app.js"></script>
+  <script type="module" src="/js/app.js?v=env5"></script>
 </body>
 </html>

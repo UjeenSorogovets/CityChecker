@@ -1,0 +1,93 @@
+{
+  "debug": {
+    "mapModeBtn": "Environment",
+    "legendHidden": false,
+    "legendText": "Environment layer\n Landfill\n Incinerator\n Industry\nDashed rings = influence · wedge = wind",
+    "sheetTitle": "Koziny",
+    "sheetMeta": "Environment risk: 7/10 · Landfill 2.09 km · Railway 0.69 km · Airport 6.7 km · Industry 0.6 km · Highway 0.43 km",
+    "riskPaneExists": true,
+    "riskPaneDisplay": "block",
+    "riskPaneVisibility": "visible",
+    "riskPaneZ": "650",
+    "riskSvgCount": 1,
+    "riskPathCount": 102,
+    "riskCircleCount": 0,
+    "riskPaneHTML": "<svg pointer-events=\"none\" class=\"leaflet-zoom-animated\" width=\"1248\" height=\"1014\" viewBox=\"-104 -84 1248 1014\" style=\"transform: translate3d(-104px, -84px, 0px);\"><g><path class=\"env-influence-ring\" stroke=\"#c62828\" stroke-opacity=\"0.85\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-dasharray=\"8 10\" fill=\"#c62828\" fill-opacity=\"0.16\" fill-rule=\"evenodd\" d=\"M459.8712888888549,461.91615929146064a338,338 0 1,0 676,0 a338,338 0 1,0 -676,0 \"></path><path class=\"env-wind-wedge\" stroke=\"#c62828\" stroke-opacity=\"0.7\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" fill=\"#c62828\" fill-opacity=\"0.22\" fill-rule=\"evenodd\" d=\"M798 462L572 666L549 637L529 605L514 572L502 536L496 500L493 462L495 425L502 389L513 353L529 319L548 288L571 258z\"></path><path class=\"e",
+    "zoomMode": "District level",
+    "appJs": [
+      "http://localhost:8080/js/app.js?v=env4"
+    ],
+    "localStorageMode": "environment",
+    "cityId": "11111111-1111-1111-1111-111111111111",
+    "leafletPanes": [
+      {
+        "cls": "leaflet-pane leaflet-map-pane",
+        "kids": 8,
+        "z": "400"
+      },
+      {
+        "cls": "leaflet-pane leaflet-tile-pane",
+        "kids": 1,
+        "z": "200"
+      },
+      {
+        "cls": "leaflet-pane leaflet-overlay-pane",
+        "kids": 1,
+        "z": "400"
+      },
+      {
+        "cls": "leaflet-pane leaflet-shadow-pane",
+        "kids": 0,
+        "z": "500"
+      },
+      {
+        "cls": "leaflet-pane leaflet-marker-pane",
+        "kids": 0,
+        "z": "600"
+      },
+      {
+        "cls": "leaflet-pane leaflet-tooltip-pane",
+        "kids": 0,
+        "z": "650"
+      },
+      {
+        "cls": "leaflet-pane leaflet-popup-pane",
+        "kids": 0,
+        "z": "700"
+      },
+      {
+        "cls": "leaflet-pane leaflet-risk-pane",
+        "kids": 1,
+        "z": "650"
+      }
+    ]
+  },
+  "envProbe": {
+    "status": 200,
+    "districts": 36,
+    "features": 479,
+    "rings": 44,
+    "sample": {
+      "type": "landfill",
+      "name": "Nielegalne wysypisko śmieci",
+      "weight": 0.85,
+      "influenceKm": 5,
+      "windBearing": 270,
+      "showRing": true
+    },
+    "coords": [
+      19.5231902,
+      51.768664
+    ]
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 403 ()"
+    },
+    {
+      "type": "error",
+      "text": "[GSI_LOGGER]: The given origin is not allowed for the given client ID."
+    }
+  ]
+}

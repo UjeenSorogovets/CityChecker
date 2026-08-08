@@ -72,6 +72,46 @@ body {
   color: var(--ink);
   border-color: var(--accent);
 }
+#map-mode-toggle.map-mode-env {
+  background: rgba(230, 81, 0, 0.18);
+  color: #c62828;
+  border-color: #c62828;
+  font-weight: 600;
+}
+.env-legend {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 1.75rem;
+  z-index: 500;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.75rem;
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  line-height: 1.45;
+  max-width: 12rem;
+  pointer-events: none;
+}
+.env-legend.hidden { display: none !important; }
+.env-legend-title { font-weight: 600; margin-bottom: 0.25rem; }
+.env-legend-hint { color: var(--muted); margin-top: 0.3rem; font-size: 0.7rem; }
+.env-swatch {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  margin-right: 0.25rem;
+  vertical-align: middle;
+}
+.env-swatch.landfill { background: #e65100; }
+.env-swatch.incinerator { background: #c62828; }
+.env-swatch.factory { background: #6a1b9a; }
+.leaflet-risk-pane path.env-influence-ring,
+.leaflet-risk-pane path.env-wind-wedge {
+  pointer-events: none;
+}
 .password-form {
   display: grid;
   gap: 0.75rem;

@@ -74,3 +74,19 @@ public record AggregateDto(
     double? ScoreTransport,
     double? ScoreSafety,
     int NoteCount);
+
+public record DistrictEnvironmentDto(
+    Guid DistrictId,
+    int EnvRiskOverall,
+    double? NearestLandfillKm,
+    bool LandfillDownwind,
+    double? NearestRailKm,
+    double? NearestAirportKm,
+    double? NearestIndustrialKm,
+    double? NearestHighwayKm);
+
+public record CityEnvironmentDto(
+    DateTime ComputedAt,
+    IReadOnlyList<DistrictEnvironmentDto> Districts,
+    System.Text.Json.JsonElement Sources);
+

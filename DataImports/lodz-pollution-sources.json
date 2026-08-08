@@ -1,0 +1,65 @@
+{
+  "cityId": "11111111-1111-1111-1111-111111111111",
+  "sources": [
+    {
+      "id": "lodz-sortownia-zamiejska",
+      "type": "waste_transfer",
+      "name": "Sortownia / PSZOK Zamiejska",
+      "lat": 51.7205,
+      "lon": 19.3580,
+      "weight": 0.85,
+      "influenceKm": 4,
+      "notes": "MPO sortownia + PSZOK; SW Łódź"
+    },
+    {
+      "id": "lodz-ec4-andzejewska",
+      "type": "waste_incinerator",
+      "name": "EC4 / Zakład Odzysku Energii (Widzew)",
+      "lat": 51.7508,
+      "lon": 19.5515,
+      "weight": 1.0,
+      "influenceKm": 8,
+      "notes": "Veolia EC4 site — planned/operating energy-from-waste; verify status"
+    },
+    {
+      "id": "lodz-ec3-wschodnia",
+      "type": "power_plant",
+      "name": "EC3 Wschodnia",
+      "lat": 51.7670,
+      "lon": 19.5190,
+      "weight": 0.75,
+      "influenceKm": 5,
+      "notes": "District heating / power — industrial emissions proxy"
+    },
+    {
+      "id": "lodz-industrial-teofilow",
+      "type": "factory",
+      "name": "Teofilów industrial area",
+      "lat": 51.8005,
+      "lon": 19.3900,
+      "weight": 0.7,
+      "influenceKm": 3,
+      "notes": "Dense industrial cluster (NW)"
+    },
+    {
+      "id": "lodz-industrial-widzew",
+      "type": "factory",
+      "name": "Widzew industrial area",
+      "lat": 51.7450,
+      "lon": 19.5400,
+      "weight": 0.7,
+      "influenceKm": 3,
+      "notes": "Industrial cluster near EC4"
+    },
+    {
+      "id": "lodz-industrial-dabrova",
+      "type": "factory",
+      "name": "Dąbrowa industrial area",
+      "lat": 51.7200,
+      "lon": 19.4800,
+      "weight": 0.65,
+      "influenceKm": 2.5,
+      "notes": "Southern industrial belt"
+    }
+  ]
+}
