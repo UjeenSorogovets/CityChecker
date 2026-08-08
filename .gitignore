@@ -3,7 +3,12 @@
 **/obj/
 *.user
 *.suo
+
+# Secrets — never commit (keep .env.example only)
 .env
+.env.*
+!.env.example
+
 appsettings.*.local.json
 .DS_Store
 pgdata/
@@ -12,3 +17,6 @@ backups/
 **/.venv/
 DataImports/_inspect*.py
 DataImports/__pycache__/
+
+# Local Cursor MCP overrides (may contain passwords)
+.cursor/mcp.json

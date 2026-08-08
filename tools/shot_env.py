@@ -12,9 +12,9 @@ os.makedirs(OUT, exist_ok=True)
 SHOT = os.path.join(OUT, "lodz-environment.png")
 DEBUG = os.path.join(OUT, "lodz-environment-debug.json")
 
-EMAIL = "mcp@citychecker.local"
-PASSWORD = "mcp-local-dev-password"
-BASE = "http://localhost:8080"
+EMAIL = os.environ.get("CITYCHECKER_EMAIL", "mcp@citychecker.local")
+PASSWORD = os.environ.get("CITYCHECKER_PASSWORD", "mcp-local-dev-password")
+BASE = os.environ.get("CITYCHECKER_BASE_URL", "http://localhost:8080")
 
 
 def main() -> None:

@@ -1,6 +1,6 @@
 # AGENTS.md — AI context for CityChecker
 
-This file is for AI coding assistants. Humans: see [README.md](README.md) for commands only.
+This file is for AI coding assistants. Humans: [README.md](README.md) (short commands) · [docs/](docs/README.md) (ops).
 
 ## What this project is
 
@@ -19,6 +19,8 @@ Whole-district notes were removed; district scores come from point notes inside 
 **Auth:** email/password (JWT, `PasswordAuth.Scheme`) + optional Google Sign-In (JWT, `Google` scheme). Single-user personal app — any authenticated user is allowed (`EnsureOwner` only checks signed-in). Google OAuth needs HTTPS + domain; password auth works on plain `http://localhost:8080` or `http://IP:8080`.
 
 **Deploy:** VPS at `/opt/CityChecker`, SSH `root@ujeen.pl` (or server IP). Production: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d` → **https://ujeen.pl** (Caddy 80/443 → api:8080 internal). Local: `docker compose up` → **http://localhost:8080** (`Development` env). User commits/pushes themselves — do not commit unless asked.
+
+**Prod SSH from workstation (agent):** put `SSH_HOST` / `SSH_USER` / `SSH_PASSWORD` in local `.env` only (gitignored). Probe with `pip install -r scripts/requirements-remote.txt` then `python scripts/remote.py --health` or `python scripts/remote.py -- 'cd /opt/CityChecker && docker compose -f docker-compose.yml -f docker-compose.prod.yml ps'`. Never commit `.env`.
 
 ## Repository layout
 
@@ -48,8 +50,9 @@ CityChecker/
 ├── Dockerfile
 ├── run.ps1 / run.sh              # Local foreground compose
 ├── run-prod.ps1 / run-prod.sh    # Prod detached compose
+├── docs/                         # Human ops docs (local, deploy, backup, SSH)
 ├── .env.example
-├── README.md                     # Human: commands only
+├── README.md                     # Human: short commands + links to docs/
 └── AGENTS.md                     # This file
 ```
 

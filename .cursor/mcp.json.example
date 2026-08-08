@@ -6,7 +6,7 @@
       "env": {
         "CITYCHECKER_BASE_URL": "http://localhost:8080",
         "CITYCHECKER_EMAIL": "mcp@citychecker.local",
-        "CITYCHECKER_PASSWORD": "mcp-local-dev-password"
+        "CITYCHECKER_PASSWORD": "change-me-local-only"
       }
     }
   }
