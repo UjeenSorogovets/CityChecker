@@ -118,8 +118,35 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
 
 - `DataImports/Granice osiedli.csv`
 - `DataImports/lodz-osiedla-polygons.json`
+- `DataImports/wind-rose.json`
+- `DataImports/lodz-pollution-sources.json`
 
 Kraków/Warszawa polygon caches are imported automatically when those cities have no districts.
+
+## Backup / restore (move to a new server)
+
+Creates `backups/citychecker-backup-YYYYMMDD-HHMM.tar.gz` with Postgres dump + `DataImports/` snapshot. Does **not** include `.env` (copy secrets separately). Env risk cache is omitted (recompute after restore).
+
+**Windows:**
+
+```powershell
+.\scripts\backup.ps1
+.\scripts\restore.ps1 backups\citychecker-backup-YYYYMMDD-HHMM.tar.gz
+```
+
+**Linux / VPS:**
+
+```bash
+./scripts/backup.sh
+./scripts/restore.sh backups/citychecker-backup-YYYYMMDD-HHMM.tar.gz
+# production compose:
+./scripts/backup.sh --prod
+./scripts/restore.sh backups/citychecker-backup-YYYYMMDD-HHMM.tar.gz --prod
+```
+
+After restore: ensure `.env` is present, then open Environment mode or `POST /api/admin/refresh-environment/{cityId}`.
+
+Optional daily cron on the VPS: `0 3 * * * cd /opt/CityChecker && ./scripts/backup.sh --prod`
 
 ---
 

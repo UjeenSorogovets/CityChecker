@@ -39,7 +39,9 @@ CityChecker/
 │           ├── housing.js        # Decide panel
 │           ├── api.js            # fetch + JWT in localStorage
 │           └── i18n.js           # EN/RU
-├── DataImports/                  # CSV + polygon JSON caches (mounted ro in Docker)
+├── DataImports/                  # CSV + polygon JSON + wind/pollution (mounted ro in Docker)
+├── scripts/                      # backup.sh|ps1, restore.sh|ps1 → backups/*.tar.gz
+├── backups/                      # gitignored backup archives
 ├── docker-compose.yml            # Local: api:8080 published, ASPNETCORE_ENVIRONMENT=Development
 ├── docker-compose.prod.yml       # Prod overlay: Caddy, no public api port, Production env
 ├── Caddyfile.prod
@@ -220,6 +222,17 @@ Regenerate polygon caches: `python DataImports/_fetch_osiedla_polygons.py`, `pyt
 ### Change map behavior
 
 Primary file: `wwwroot/js/app.js`. Housing-specific: `housing.js`. Styles: `app.css`.
+
+### Backup / restore (new server)
+
+District IDs are random per import — always restore Postgres with user data, not GeoJSON alone.
+
+```bash
+./scripts/backup.sh          # → backups/citychecker-backup-*.tar.gz (dump + DataImports)
+./scripts/restore.sh backups/citychecker-backup-YYYYMMDD-HHMM.tar.gz
+```
+
+Dump excludes `DistrictEnvironments`, `CityEnvironmentSources`, `districts_import_raw` (regenerable). Copy `.env` separately. After restore, refresh env via admin endpoint or Environment UI.
 
 ### Verify locally
 
