@@ -25,6 +25,8 @@ let buildingLayer = L.layerGroup();
 /** @type {L.LayerGroup} */
 let pointLayer = L.layerGroup();
 /** @type {L.LayerGroup} */
+let userLocationLayer = L.layerGroup();
+/** @type {L.LayerGroup} */
 let riskSourceLayer = L.layerGroup();
 
 let cities = [];
@@ -455,16 +457,16 @@ function updateSheetHandleAria() {
 }
 
 function updateFabPosition() {
-  const fab = document.getElementById("place-note-fab");
-  if (!fab || fab.classList.contains("hidden")) return;
+  const stack = document.getElementById("map-fabs");
+  if (!stack) return;
   if (!isMobileSheet()) {
-    fab.style.bottom = "";
+    stack.style.bottom = "";
     return;
   }
   const sheetH = els.sheet.getBoundingClientRect().height;
   const safe =
     parseInt(getComputedStyle(document.documentElement).getPropertyValue("env(safe-area-inset-bottom)")) || 0;
-  fab.style.bottom = `${sheetH + 12 + safe}px`;
+  stack.style.bottom = `${sheetH + 12 + safe}px`;
 }
 
 function cycleSheetSnap() {
@@ -631,6 +633,58 @@ function initPlaceNoteFab() {
 
   fab.addEventListener("pointerup", finishDrag);
   fab.addEventListener("pointercancel", finishDrag);
+}
+
+function setLocateBusy(busy) {
+  const btn = document.getElementById("locate-me-btn");
+  if (!btn) return;
+  btn.disabled = busy;
+  btn.setAttribute("aria-busy", busy ? "true" : "false");
+}
+
+function initLocateMe() {
+  const btn = document.getElementById("locate-me-btn");
+  if (!btn || !map || btn.dataset.wired) return;
+  btn.dataset.wired = "1";
+
+  map.on("locationfound", (e) => {
+    setLocateBusy(false);
+    userLocationLayer.clearLayers();
+    L.circle(e.latlng, {
+      radius: e.accuracy,
+      color: "#4285F4",
+      weight: 1,
+      fillColor: "#4285F4",
+      fillOpacity: 0.15,
+      interactive: false,
+    }).addTo(userLocationLayer);
+    L.circleMarker(e.latlng, {
+      radius: 8,
+      color: "#fff",
+      weight: 2,
+      fillColor: "#4285F4",
+      fillOpacity: 1,
+      interactive: false,
+    }).addTo(userLocationLayer);
+  });
+
+  map.on("locationerror", () => {
+    setLocateBusy(false);
+    alert(t("locateFail"));
+  });
+
+  btn.addEventListener("click", () => {
+    if (!map || btn.disabled) return;
+    setLocateBusy(true);
+    map.stopLocate();
+    map.locate({
+      setView: true,
+      maxZoom: 16,
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 8000,
+    });
+  });
 }
 
 function updateZoomLabel() {
@@ -907,6 +961,7 @@ async function enterCity(city, { persist = true } = {}) {
   selectedDistrictId = null;
   mapShortlistIds = null;
   buildingLayer.clearLayers();
+  userLocationLayer.clearLayers();
   setPlaceNoteFabVisible(true);
   if (map.hasLayer(cityLayer)) map.removeLayer(cityLayer);
 
@@ -965,6 +1020,7 @@ function initMap() {
   cityLayer.addTo(map);
   buildingLayer.addTo(map);
   pointLayer.addTo(map);
+  userLocationLayer.addTo(map);
 
   map.on("zoomend", scheduleMapUpdate);
   map.on("moveend", scheduleMapUpdate);
@@ -976,6 +1032,7 @@ function initMap() {
   });
 
   initPlaceNoteFab();
+  initLocateMe();
   initHousing({
     map,
     getActiveCityId: () => activeCityId,

@@ -160,10 +160,33 @@ body {
 .map-wrap { position: relative; min-height: 0; }
 #map { height: 100%; width: 100%; touch-action: none; }
 
-.place-note-fab {
+.map-fabs {
   position: fixed;
   right: max(1rem, env(safe-area-inset-right, 0px));
   z-index: 950;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+.locate-me-btn {
+  width: 3.5rem;
+  height: 3.5rem;
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  color: #1a1a1a;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.locate-me-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.place-note-fab {
+  position: relative;
   width: 3.5rem;
   height: 3.5rem;
   border: 2px solid #fff;
@@ -655,11 +678,14 @@ body.place-note-dragging .leaflet-container { pointer-events: none; }
   }
   .topbar { grid-column: 1 / -1; }
   .map-wrap { grid-column: 1; }
+  .map-fabs {
+    bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
+    right: calc(360px + 1rem);
+  }
+  .locate-me-btn,
   .place-note-fab {
     width: 3.25rem;
     height: 3.25rem;
-    bottom: max(1.5rem, env(safe-area-inset-bottom, 0px));
-    right: calc(360px + 1rem);
   }
   .sheet {
     position: relative;
