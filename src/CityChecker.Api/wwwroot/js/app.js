@@ -43,6 +43,8 @@ let lockedCityId = null;
 let selectedDistrictId = null;
 let context = null;
 let editingNoteId = null;
+/** @type {object | null} */
+let pendingMoveNote = null;
 /** @type {"comfort"|"environment"} */
 let mapMode = localStorage.getItem(MAP_MODE_KEY) === "environment" ? "environment" : "comfort";
 const DEFAULT_POINT_RADIUS = 50;
@@ -570,6 +572,7 @@ function updatePlaceNoteFabLabel() {
 
 async function clearSelection() {
   if (!lockedCityId) return;
+  cancelPointMove();
   selectedDistrictId = null;
   applyDistrictStyles();
   context = { level: "City", cityId: lockedCityId, title: lockedCityName() };
@@ -1029,6 +1032,7 @@ async function enterCity(city, { persist = true } = {}) {
   lockedCityId = city.cityId;
   selectedDistrictId = null;
   mapShortlistIds = null;
+  cancelPointMove();
   buildingLayer.clearLayers();
   userLocationLayer.clearLayers();
   userHeadingEl = null;
@@ -1157,6 +1161,7 @@ async function onZoomOrMove() {
 
   setDistrictInteractive(mode === "district" || mode === "city");
   updateRiskSourceVisibility();
+  if (pendingMoveNote) return;
   if (mode === "building") {
     await loadBuildingMarkers();
     await loadPointNotes();
@@ -1167,11 +1172,12 @@ async function onZoomOrMove() {
 }
 
 function setDistrictInteractive(interactive) {
-  applyDistrictStyles(interactive);
+  const on = interactive && !pendingMoveNote;
+  applyDistrictStyles(on);
   if (!districtLayer) return;
   districtLayer.eachLayer((layer) => {
     const el = layer.getElement?.() || layer._path;
-    if (el) el.style.pointerEvents = interactive ? "auto" : "none";
+    if (el) el.style.pointerEvents = on ? "auto" : "none";
   });
 }
 
@@ -1310,6 +1316,10 @@ async function loadDistricts(cityId) {
       layer.on("click", (e) => {
         if (!lockedCityId) return;
         L.DomEvent.stopPropagation(e);
+        if (pendingMoveNote) {
+          commitPointMove(pendingMoveNote, e.latlng);
+          return;
+        }
         selectDistrict(feature.properties);
       });
     },
@@ -1335,8 +1345,7 @@ async function loadPointNotes() {
   try {
     const notes = await api(`/api/notes?cityId=${cityId}&level=Point`);
     pointLayer.clearLayers();
-    const size = isCoarsePointer() ? 16 : 12;
-    const hint = t("movePointHint");
+    const dotRadius = isCoarsePointer() ? 8 : 5;
     for (const n of notes) {
       if (n.lat == null || n.lon == null) continue;
       const color = scoreColor(n.scoreOverall);
@@ -1348,63 +1357,25 @@ async function loadPointNotes() {
         fillOpacity: 0.25,
         weight: 1.5,
         opacity: 0.85,
-        interactive: false, // coverage only — clicks pass through so new points can be placed inside
+        interactive: false,
       });
       pointLayer.addLayer(circle);
-
-      const marker = L.marker([n.lat, n.lon], {
-        draggable: true,
-        autoPan: false,
-        zIndexOffset: 400,
-        title: hint,
-        icon: L.divIcon({
-          className: "point-note-dot",
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size / 2],
-          html: `<span style="background:${color}"></span>`,
-        }),
+      const dot = L.circleMarker([n.lat, n.lon], {
+        radius: dotRadius,
+        color: "#1a2b33",
+        fillColor: color,
+        fillOpacity: 1,
+        weight: 1,
       });
-      marker.once("add", () => {
-        const el = marker.getElement();
-        if (el) el.setAttribute("aria-label", hint);
-      });
-      let suppressClick = false;
-      marker.on("drag", () => {
-        circle.setLatLng(marker.getLatLng());
-      });
-      marker.on("click", (e) => {
+      dot.on("click", (e) => {
         L.DomEvent.stopPropagation(e);
-        if (suppressClick) {
-          suppressClick = false;
+        if (pendingMoveNote) {
+          commitPointMove(pendingMoveNote, e.latlng);
           return;
         }
         selectPointNote(n);
       });
-      marker.on("dragend", async () => {
-        const ll = marker.getLatLng();
-        const moved = Math.abs(ll.lat - n.lat) > 1e-7 || Math.abs(ll.lng - n.lon) > 1e-7;
-        if (!moved) return;
-        suppressClick = true;
-        try {
-          const saved = await api(`/api/notes/${n.noteId}`, {
-            method: "PUT",
-            body: JSON.stringify(pointNoteWriteBody(n, ll)),
-          });
-          await reloadDistrictColors();
-          await loadPointNotes();
-          const wasThis =
-            context?.level === "Point" &&
-            context.lat != null &&
-            Math.abs(context.lat - n.lat) < 1e-5 &&
-            Math.abs(context.lon - n.lon) < 1e-5;
-          if (wasThis && saved) await selectPointNote(saved);
-          else await refreshSheet();
-        } catch (err) {
-          if (err.status === 401) showAuthError({ message: t("sessionExpired") });
-          else await loadPointNotes();
-        }
-      });
-      pointLayer.addLayer(marker);
+      pointLayer.addLayer(dot);
     }
   } catch (err) {
     if (err.status === 401) showAuthError({ message: t("sessionExpired") });
@@ -1427,6 +1398,47 @@ function pointNoteWriteBody(n, latlng) {
     lon: latlng.lng,
     radiusMeters: n.radiusMeters ?? DEFAULT_POINT_RADIUS,
   };
+}
+
+function setMoveModeUi(on) {
+  map?.getContainer()?.classList.toggle("moving-point", on);
+  const mode = map ? currentMode(map.getZoom()) : "district";
+  setDistrictInteractive(mode === "district" || mode === "city");
+}
+
+function startPointMove(n) {
+  if (pendingMoveNote && pendingMoveNote.noteId === n.noteId) {
+    cancelPointMove();
+    refreshSheet();
+    return;
+  }
+  pendingMoveNote = n;
+  setMoveModeUi(true);
+  refreshSheet();
+}
+
+function cancelPointMove() {
+  if (!pendingMoveNote) return;
+  pendingMoveNote = null;
+  setMoveModeUi(false);
+}
+
+async function commitPointMove(n, latlng) {
+  pendingMoveNote = null;
+  setMoveModeUi(false);
+  try {
+    const saved = await api(`/api/notes/${n.noteId}`, {
+      method: "PUT",
+      body: JSON.stringify(pointNoteWriteBody(n, latlng)),
+    });
+    await reloadDistrictColors();
+    await loadPointNotes();
+    if (saved) await selectPointNote(saved);
+    else await refreshSheet();
+  } catch (err) {
+    if (err.status === 401) showAuthError({ message: t("sessionExpired") });
+    else await loadPointNotes();
+  }
 }
 
 async function selectPointNote(n) {
@@ -1510,6 +1522,10 @@ async function loadBuildingMarkers() {
     m.bindTooltip(bld.addressLine);
     m.on("click", (e) => {
       L.DomEvent.stopPropagation(e);
+      if (pendingMoveNote) {
+        commitPointMove(pendingMoveNote, e.latlng);
+        return;
+      }
       selectBuilding(bld);
     });
     buildingLayer.addLayer(m);
@@ -1519,6 +1535,10 @@ async function loadBuildingMarkers() {
 async function onMapClick(e) {
   if (!requireAuthOrGate()) {
     showAuthError({ message: t("sessionExpired") });
+    return;
+  }
+  if (pendingMoveNote) {
+    await commitPointMove(pendingMoveNote, e.latlng);
     return;
   }
   if (housingMapClick(e.latlng)) return;
@@ -1640,11 +1660,15 @@ async function refreshSheet() {
             Math.abs(n.lon - context.lon) < 1e-5)
       );
     }
-    els.sheetMeta.textContent =
-      agg.noteCount > 0 && agg.scoreOverall != null
-        ? `${t("avgScore")}: ${agg.scoreOverall.toFixed(1)} (${agg.noteCount})`
-        : "";
-    if (context.level === "District" && context.districtId) {
+    if (pendingMoveNote) {
+      els.sheetMeta.textContent = t("movingNoteHint");
+    } else {
+      els.sheetMeta.textContent =
+        agg.noteCount > 0 && agg.scoreOverall != null
+          ? `${t("avgScore")}: ${agg.scoreOverall.toFixed(1)} (${agg.noteCount})`
+          : "";
+    }
+    if (!pendingMoveNote && context.level === "District" && context.districtId) {
       const envLine = formatEnvMeta(context.districtId);
       els.sheetMeta.textContent = els.sheetMeta.textContent
         ? `${els.sheetMeta.textContent} · ${envLine}`
@@ -1663,14 +1687,18 @@ async function refreshSheet() {
       const li = document.createElement("li");
       li.className = "note-card";
       const radiusMeta = n.radiusMeters != null ? ` · ${n.radiusMeters}m` : "";
+      const canMove = n.level === "Point" || (n.lat != null && n.lon != null);
+      const movingThis = pendingMoveNote && pendingMoveNote.noteId === n.noteId;
       li.innerHTML = `
         <div><span class="score">${n.scoreOverall}/10</span><span class="meta">${n.level}${radiusMeta}</span></div>
         <p></p>
         <div class="note-actions">
+          ${canMove ? `<button type="button" class="btn ghost move">${movingThis ? t("cancel") : t("moveNote")}</button>` : ""}
           <button type="button" class="btn ghost edit">${t("editNote")}</button>
           <button type="button" class="btn ghost danger del">${t("delete")}</button>
         </div>`;
       li.querySelector("p").textContent = n.text;
+      li.querySelector(".move")?.addEventListener("click", () => startPointMove(n));
       li.querySelector(".edit").onclick = () => openNoteForm(n);
       li.querySelector(".del").onclick = async () => {
         await api(`/api/notes/${n.noteId}`, { method: "DELETE" });

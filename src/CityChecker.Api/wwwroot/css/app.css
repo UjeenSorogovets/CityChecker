@@ -222,18 +222,8 @@ body {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
   pointer-events: none;
 }
-.point-note-dot {
-  background: none !important;
-  border: none !important;
-  cursor: grab;
-}
-.point-note-dot span {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  border: 1px solid #1a2b33;
-  box-sizing: border-box;
+.leaflet-container.moving-point {
+  cursor: crosshair;
 }
 .place-note-fab {
   position: relative;
