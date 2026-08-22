@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CityChecker.Api.Auth;
 using CityChecker.Api.Data;
 using CityChecker.Api.Data.Entities;
@@ -44,7 +45,31 @@ public static class AuthEndpoints
 
             return Results.Ok(new { token = PasswordAuth.IssueToken(config, user.UserId) });
         });
+
+        app.MapPost("/api/auth/google", async (GoogleAuthBody body, IHttpClientFactory http, IConfiguration config) =>
+        {
+            var clientId = config["Google:ClientId"] ?? "";
+            if (string.IsNullOrWhiteSpace(body.Credential) || clientId.Contains("YOUR_GOOGLE", StringComparison.Ordinal))
+                return Results.Json(new { error = "Sign-in failed or your account is not allowed." }, statusCode: 401);
+
+            var url = "https://oauth2.googleapis.com/tokeninfo?id_token=" + Uri.EscapeDataString(body.Credential);
+            using var res = await http.CreateClient().GetAsync(url);
+            if (!res.IsSuccessStatusCode)
+                return Results.Json(new { error = "Sign-in failed or your account is not allowed." }, statusCode: 401);
+
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var info = doc.RootElement;
+            var aud = info.TryGetProperty("aud", out var audEl) ? audEl.GetString() : null;
+            var iss = info.TryGetProperty("iss", out var issEl) ? issEl.GetString() : null;
+            var sub = info.TryGetProperty("sub", out var subEl) ? subEl.GetString() : null;
+            var issOk = iss is "https://accounts.google.com" or "accounts.google.com";
+            if (aud != clientId || !issOk || string.IsNullOrWhiteSpace(sub))
+                return Results.Json(new { error = "Sign-in failed or your account is not allowed." }, statusCode: 401);
+
+            return Results.Ok(new { token = PasswordAuth.IssueToken(config, sub) });
+        });
     }
 
     public record AuthBody(string? Email, string? Password);
+    public record GoogleAuthBody(string? Credential);
 }

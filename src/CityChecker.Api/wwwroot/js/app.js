@@ -822,7 +822,6 @@ async function initAuth() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw { message: body.error || t("authFailed"), status: res.status, body };
       setToken(body.token);
-      sessionStorage.setItem("cc_had_token", "1");
       history.replaceState(null, "", location.pathname);
       await api("/api/cities");
       showApp();
@@ -845,9 +844,6 @@ async function initAuth() {
       }
       clearToken();
     }
-  } else if (getToken() === null && sessionStorage.getItem("cc_had_token")) {
-    els.authError.textContent = t("sessionExpired");
-    els.authError.classList.remove("hidden");
   }
 
   const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
@@ -866,9 +862,15 @@ function wireGoogle(clientId) {
     window.google.accounts.id.initialize({
       client_id: clientId,
       callback: async (response) => {
-        setToken(response.credential);
-        sessionStorage.setItem("cc_had_token", "1");
         try {
+          const res = await fetch("/api/auth/google", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ credential: response.credential }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) throw { message: body.error || t("authFailed"), status: res.status, body };
+          setToken(body.token);
           await api("/api/cities");
           showApp();
         } catch (err) {

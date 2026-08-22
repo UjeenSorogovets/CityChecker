@@ -44,14 +44,17 @@ public static class PasswordAuth
         return CryptographicOperations.FixedTimeEquals(expected, actual);
     }
 
-    public static string IssueToken(IConfiguration config, Guid userId, TimeSpan? lifetime = null)
+    public static string IssueToken(IConfiguration config, Guid userId, TimeSpan? lifetime = null) =>
+        IssueToken(config, userId.ToString("D"), lifetime);
+
+    public static string IssueToken(IConfiguration config, string userId, TimeSpan? lifetime = null)
     {
         var key = new SymmetricSecurityKey(SigningKeyBytes(config));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
             issuer: Issuer,
             audience: Issuer,
-            claims: [new Claim("sub", userId.ToString("D"))],
+            claims: [new Claim("sub", userId)],
             expires: DateTime.UtcNow.Add(lifetime ?? TimeSpan.FromDays(30)),
             signingCredentials: creds);
         return new JwtSecurityTokenHandler().WriteToken(token);
