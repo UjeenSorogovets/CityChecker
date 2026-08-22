@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """git pull + compose rebuild on prod. Uses SSH_* from local .env (gitignored).
 
-Commit and push to origin/main first. This does not copy files from your PC
-(that left the server working tree dirty and blocked later pulls).
+Commit and push to origin/main first.
 
 Usage (from repo root):
   python scripts/deploy.py
@@ -31,6 +30,51 @@ def load_env(path: Path) -> dict[str, str]:
     return out
 
 
+def ssh_connect(host: str, port: int, user: str, password: str):
+    import paramiko
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(
+        hostname=host,
+        port=port,
+        username=user,
+        password=password,
+        timeout=30,
+        allow_agent=False,
+        look_for_keys=False,
+    )
+    transport = client.get_transport()
+    if transport:
+        transport.set_keepalive(30)
+        transport.banner_timeout = 60
+        transport.auth_timeout = 60
+    return client
+
+
+def run_stream(client, cmd: str) -> int:
+    stdin, stdout, stderr = client.exec_command(cmd, get_pty=True)
+    chan = stdout.channel
+    while True:
+        if chan.recv_ready():
+            sys.stdout.buffer.write(chan.recv(4096))
+            sys.stdout.buffer.flush()
+        if chan.recv_stderr_ready():
+            sys.stderr.buffer.write(chan.recv_stderr(4096))
+            sys.stderr.buffer.flush()
+        if chan.exit_status_ready() and not chan.recv_ready() and not chan.recv_stderr_ready():
+            break
+    leftover = stdout.read()
+    if leftover:
+        sys.stdout.buffer.write(leftover if isinstance(leftover, bytes) else leftover.encode("utf-8", errors="replace"))
+        sys.stdout.buffer.flush()
+    err = stderr.read()
+    if err:
+        sys.stderr.buffer.write(err if isinstance(err, bytes) else err.encode("utf-8", errors="replace"))
+        sys.stderr.buffer.flush()
+    return chan.recv_exit_status()
+
+
 def main() -> int:
     env = load_env(ROOT / ".env")
     host = env.get("SSH_HOST") or os.environ.get("SSH_HOST")
@@ -46,56 +90,33 @@ def main() -> int:
         return 2
 
     try:
-        import paramiko
+        import paramiko  # noqa: F401
     except ImportError:
         print("Install paramiko: pip install -r scripts/requirements-remote.txt", file=sys.stderr)
         return 2
 
-    cmd = (
-        "set -e; "
-        f"cd {REMOTE_ROOT}; "
-        "git pull --ff-only; "
-        f"{COMPOSE} up --build -d; "
-        f"{COMPOSE} ps; "
-        "curl -sI --max-time 20 https://ujeen.pl/ | head -n 8 || true"
-    )
-    print(f"git pull --ff-only + compose rebuild on {user}@{host}:{REMOTE_ROOT}")
-
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    cmd = f"""
+set -e
+cd {REMOTE_ROOT}
+cp -a .env /root/citychecker.env.bak
+git fetch origin
+git restore --worktree --staged -- . || true
+git pull --ff-only origin main
+cp -a /root/citychecker.env.bak .env
+{COMPOSE} up --build -d
+{COMPOSE} ps
+git log -1 --oneline
+for i in 1 2 3 4 5 6; do
+  code=$(curl -sI --max-time 15 https://ujeen.pl/ | head -n 1 || true)
+  echo "$code"
+  echo "$code" | grep -q " 200 " && break
+  sleep 5
+done
+"""
+    print(f"Deploy {user}@{host}:{REMOTE_ROOT} (git pull + rebuild)")
+    client = ssh_connect(host, port, user, password)
     try:
-        client.connect(
-            hostname=host,
-            port=port,
-            username=user,
-            password=password,
-            timeout=30,
-            allow_agent=False,
-            look_for_keys=False,
-        )
-        transport = client.get_transport()
-        if transport:
-            transport.set_keepalive(30)
-        stdin, stdout, stderr = client.exec_command(cmd, get_pty=True)
-        out = stdout.read().decode("utf-8", errors="replace")
-        err = stderr.read().decode("utf-8", errors="replace")
-        code = stdout.channel.recv_exit_status()
-        if out:
-            sys.stdout.buffer.write(out.encode("utf-8", errors="replace"))
-            if not out.endswith("\n"):
-                sys.stdout.buffer.write(b"\n")
-        if err:
-            sys.stderr.buffer.write(err.encode("utf-8", errors="replace"))
-            if not err.endswith("\n"):
-                sys.stderr.buffer.write(b"\n")
-        if code != 0:
-            print(
-                "Pull failed? The last file-upload deploy left local edits on the "
-                "server. Commit+push from your PC, then say if you want those "
-                "server edits discarded (keep .env).",
-                file=sys.stderr,
-            )
-        return code
+        return run_stream(client, cmd)
     finally:
         client.close()
 

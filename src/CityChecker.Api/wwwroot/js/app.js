@@ -45,7 +45,7 @@ let context = null;
 let editingNoteId = null;
 /** @type {"comfort"|"environment"} */
 let mapMode = localStorage.getItem(MAP_MODE_KEY) === "environment" ? "environment" : "comfort";
-const DEFAULT_POINT_RADIUS = 300;
+const DEFAULT_POINT_RADIUS = 50;
 const FAB_DRAG_MIN_PX = 8;
 const SHEET_DRAG_THRESHOLD = 40;
 const SHEET_SNAP_ORDER = ["peek", "half", "full"];
@@ -660,20 +660,15 @@ function compassHeadingFromEvent(e) {
 }
 
 function applyUserHeading() {
-  if (!userHeadingEl) return;
-  if (userHeadingDeg == null) {
-    userHeadingEl.classList.remove("has-heading");
-    return;
-  }
+  if (!userHeadingEl || userHeadingDeg == null) return;
   userHeadingEl.style.transform = `rotate(${userHeadingDeg}deg)`;
-  userHeadingEl.classList.add("has-heading");
 }
 
 function onUserOrientation(e) {
-  if (e.type === "deviceorientationabsolute") userOrientGotAbsolute = true;
-  else if (userOrientGotAbsolute) return;
   const heading = compassHeadingFromEvent(e);
   if (heading == null) return;
+  if (e.type === "deviceorientationabsolute") userOrientGotAbsolute = true;
+  else if (userOrientGotAbsolute) return;
   userHeadingDeg = heading;
   applyUserHeading();
 }
@@ -686,12 +681,13 @@ function startUserOrientation() {
 }
 
 async function ensureOrientationPermission() {
-  const DOE = window.DeviceOrientationEvent;
-  if (DOE && typeof DOE.requestPermission === "function") {
-    try {
-      await DOE.requestPermission();
-    } catch {
-      /* iOS may deny; location marker still works without the cone */
+  for (const Ev of [window.DeviceOrientationEvent, window.DeviceMotionEvent]) {
+    if (Ev && typeof Ev.requestPermission === "function") {
+      try {
+        await Ev.requestPermission();
+      } catch {
+        /* iOS may deny */
+      }
     }
   }
   startUserOrientation();
@@ -732,8 +728,8 @@ function initLocateMe() {
       zIndexOffset: 1200,
       icon: L.divIcon({
         className: "user-heading-icon",
-        iconSize: [80, 80],
-        iconAnchor: [40, 40],
+        iconSize: [96, 96],
+        iconAnchor: [48, 48],
         html: '<div class="user-heading-rot"><div class="user-heading-cone" aria-hidden="true"></div><div class="user-heading-dot"></div></div>',
       }),
     }).addTo(userLocationLayer);
@@ -1339,7 +1335,8 @@ async function loadPointNotes() {
   try {
     const notes = await api(`/api/notes?cityId=${cityId}&level=Point`);
     pointLayer.clearLayers();
-    const dotRadius = isCoarsePointer() ? 8 : 5;
+    const size = isCoarsePointer() ? 16 : 12;
+    const hint = t("movePointHint");
     for (const n of notes) {
       if (n.lat == null || n.lon == null) continue;
       const color = scoreColor(n.scoreOverall);
@@ -1354,22 +1351,82 @@ async function loadPointNotes() {
         interactive: false, // coverage only — clicks pass through so new points can be placed inside
       });
       pointLayer.addLayer(circle);
-      const dot = L.circleMarker([n.lat, n.lon], {
-        radius: dotRadius,
-        color: "#1a2b33",
-        fillColor: color,
-        fillOpacity: 1,
-        weight: 1,
+
+      const marker = L.marker([n.lat, n.lon], {
+        draggable: true,
+        autoPan: false,
+        zIndexOffset: 400,
+        title: hint,
+        icon: L.divIcon({
+          className: "point-note-dot",
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+          html: `<span style="background:${color}"></span>`,
+        }),
       });
-      dot.on("click", (e) => {
+      marker.once("add", () => {
+        const el = marker.getElement();
+        if (el) el.setAttribute("aria-label", hint);
+      });
+      let suppressClick = false;
+      marker.on("drag", () => {
+        circle.setLatLng(marker.getLatLng());
+      });
+      marker.on("click", (e) => {
         L.DomEvent.stopPropagation(e);
+        if (suppressClick) {
+          suppressClick = false;
+          return;
+        }
         selectPointNote(n);
       });
-      pointLayer.addLayer(dot);
+      marker.on("dragend", async () => {
+        const ll = marker.getLatLng();
+        const moved = Math.abs(ll.lat - n.lat) > 1e-7 || Math.abs(ll.lng - n.lon) > 1e-7;
+        if (!moved) return;
+        suppressClick = true;
+        try {
+          const saved = await api(`/api/notes/${n.noteId}`, {
+            method: "PUT",
+            body: JSON.stringify(pointNoteWriteBody(n, ll)),
+          });
+          await reloadDistrictColors();
+          await loadPointNotes();
+          const wasThis =
+            context?.level === "Point" &&
+            context.lat != null &&
+            Math.abs(context.lat - n.lat) < 1e-5 &&
+            Math.abs(context.lon - n.lon) < 1e-5;
+          if (wasThis && saved) await selectPointNote(saved);
+          else await refreshSheet();
+        } catch (err) {
+          if (err.status === 401) showAuthError({ message: t("sessionExpired") });
+          else await loadPointNotes();
+        }
+      });
+      pointLayer.addLayer(marker);
     }
   } catch (err) {
     if (err.status === 401) showAuthError({ message: t("sessionExpired") });
   }
+}
+
+function pointNoteWriteBody(n, latlng) {
+  return {
+    level: "Point",
+    targetCityId: n.targetCityId,
+    targetDistrictId: n.targetDistrictId ?? null,
+    targetBuildingId: null,
+    text: n.text,
+    scoreOverall: n.scoreOverall,
+    scoreNature: n.scoreNature ?? null,
+    scoreShops: n.scoreShops ?? null,
+    scoreTransport: n.scoreTransport ?? null,
+    scoreSafety: n.scoreSafety ?? null,
+    lat: latlng.lat,
+    lon: latlng.lng,
+    radiusMeters: n.radiusMeters ?? DEFAULT_POINT_RADIUS,
+  };
 }
 
 async function selectPointNote(n) {

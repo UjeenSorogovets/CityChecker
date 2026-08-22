@@ -10,7 +10,7 @@ namespace CityChecker.Api.Endpoints;
 
 public static class NoteEndpoints
 {
-    public const int DefaultPointRadiusMeters = 300;
+    public const int DefaultPointRadiusMeters = 50;
     public const int MinPointRadiusMeters = 50;
     public const int MaxPointRadiusMeters = 2000;
 
