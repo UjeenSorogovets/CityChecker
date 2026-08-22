@@ -26,6 +26,12 @@ let buildingLayer = L.layerGroup();
 let pointLayer = L.layerGroup();
 /** @type {L.LayerGroup} */
 let userLocationLayer = L.layerGroup();
+/** @type {HTMLElement | null} */
+let userHeadingEl = null;
+/** @type {number | null} */
+let userHeadingDeg = null;
+let userOrientWired = false;
+let userOrientGotAbsolute = false;
 /** @type {L.LayerGroup} */
 let riskSourceLayer = L.layerGroup();
 
@@ -642,6 +648,64 @@ function setLocateBusy(busy) {
   btn.setAttribute("aria-busy", busy ? "true" : "false");
 }
 
+function compassHeadingFromEvent(e) {
+  if (typeof e.webkitCompassHeading === "number" && !Number.isNaN(e.webkitCompassHeading)) {
+    return e.webkitCompassHeading;
+  }
+  if (typeof e.alpha !== "number" || Number.isNaN(e.alpha)) return null;
+  const screenAngle = screen.orientation?.angle ?? window.orientation ?? 0;
+  let heading = (360 - e.alpha + Number(screenAngle || 0)) % 360;
+  if (heading < 0) heading += 360;
+  return heading;
+}
+
+function applyUserHeading() {
+  if (!userHeadingEl) return;
+  if (userHeadingDeg == null) {
+    userHeadingEl.classList.remove("has-heading");
+    return;
+  }
+  userHeadingEl.style.transform = `rotate(${userHeadingDeg}deg)`;
+  userHeadingEl.classList.add("has-heading");
+}
+
+function onUserOrientation(e) {
+  if (e.type === "deviceorientationabsolute") userOrientGotAbsolute = true;
+  else if (userOrientGotAbsolute) return;
+  const heading = compassHeadingFromEvent(e);
+  if (heading == null) return;
+  userHeadingDeg = heading;
+  applyUserHeading();
+}
+
+function startUserOrientation() {
+  if (userOrientWired) return;
+  userOrientWired = true;
+  window.addEventListener("deviceorientationabsolute", onUserOrientation, true);
+  window.addEventListener("deviceorientation", onUserOrientation, true);
+}
+
+async function ensureOrientationPermission() {
+  const DOE = window.DeviceOrientationEvent;
+  if (DOE && typeof DOE.requestPermission === "function") {
+    try {
+      await DOE.requestPermission();
+    } catch {
+      /* iOS may deny; location marker still works without the cone */
+    }
+  }
+  startUserOrientation();
+}
+
+function bindUserHeadingEl(marker) {
+  const hook = () => {
+    userHeadingEl = marker.getElement()?.querySelector(".user-heading-rot") ?? null;
+    applyUserHeading();
+  };
+  hook();
+  if (!userHeadingEl) requestAnimationFrame(hook);
+}
+
 function initLocateMe() {
   const btn = document.getElementById("locate-me-btn");
   if (!btn || !map || btn.dataset.wired) return;
@@ -650,6 +714,10 @@ function initLocateMe() {
   map.on("locationfound", (e) => {
     setLocateBusy(false);
     userLocationLayer.clearLayers();
+    userHeadingEl = null;
+    if (typeof e.heading === "number" && e.heading >= 0 && userHeadingDeg == null) {
+      userHeadingDeg = e.heading;
+    }
     L.circle(e.latlng, {
       radius: e.accuracy,
       color: "#4285F4",
@@ -658,14 +726,18 @@ function initLocateMe() {
       fillOpacity: 0.15,
       interactive: false,
     }).addTo(userLocationLayer);
-    L.circleMarker(e.latlng, {
-      radius: 8,
-      color: "#fff",
-      weight: 2,
-      fillColor: "#4285F4",
-      fillOpacity: 1,
+    const marker = L.marker(e.latlng, {
       interactive: false,
+      keyboard: false,
+      zIndexOffset: 1200,
+      icon: L.divIcon({
+        className: "user-heading-icon",
+        iconSize: [80, 80],
+        iconAnchor: [40, 40],
+        html: '<div class="user-heading-rot"><div class="user-heading-cone" aria-hidden="true"></div><div class="user-heading-dot"></div></div>',
+      }),
     }).addTo(userLocationLayer);
+    bindUserHeadingEl(marker);
   });
 
   map.on("locationerror", () => {
@@ -673,9 +745,10 @@ function initLocateMe() {
     alert(t("locateFail"));
   });
 
-  btn.addEventListener("click", () => {
+  btn.addEventListener("click", async () => {
     if (!map || btn.disabled) return;
     setLocateBusy(true);
+    await ensureOrientationPermission();
     map.stopLocate();
     map.locate({
       setView: true,
@@ -962,6 +1035,7 @@ async function enterCity(city, { persist = true } = {}) {
   mapShortlistIds = null;
   buildingLayer.clearLayers();
   userLocationLayer.clearLayers();
+  userHeadingEl = null;
   setPlaceNoteFabVisible(true);
   if (map.hasLayer(cityLayer)) map.removeLayer(cityLayer);
 

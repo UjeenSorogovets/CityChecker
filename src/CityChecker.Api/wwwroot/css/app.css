@@ -185,6 +185,45 @@ body {
   opacity: 0.55;
   cursor: wait;
 }
+.user-heading-icon {
+  background: none !important;
+  border: none !important;
+}
+.user-heading-rot {
+  width: 80px;
+  height: 80px;
+  position: relative;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+.user-heading-cone {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 64px;
+  height: 56px;
+  margin: -56px 0 0 -32px;
+  background: radial-gradient(ellipse at 50% 100%, rgba(66, 133, 244, 0.55) 0%, rgba(66, 133, 244, 0.18) 42%, transparent 72%);
+  clip-path: polygon(50% 100%, 8% 0, 92% 0);
+  opacity: 0;
+  pointer-events: none;
+}
+.user-heading-rot.has-heading .user-heading-cone {
+  opacity: 1;
+}
+.user-heading-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  background: #4285F4;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
 .place-note-fab {
   position: relative;
   width: 3.5rem;
