@@ -48,6 +48,13 @@ let pendingMoveNote = null;
 /** @type {"comfort"|"environment"} */
 let mapMode = localStorage.getItem(MAP_MODE_KEY) === "environment" ? "environment" : "comfort";
 const DEFAULT_POINT_RADIUS = 50;
+const MAX_NOTE_PHOTOS = 4;
+/** Coords for the note being created/edited (Point level). */
+let formPointCoords = null;
+/** @type {string[]} */
+let formPhotoUrls = [];
+let cloudinaryCloud = "";
+let cloudinaryPreset = "";
 const FAB_DRAG_MIN_PX = 8;
 const SHEET_DRAG_THRESHOLD = 40;
 const SHEET_SNAP_ORDER = ["peek", "half", "full"];
@@ -804,6 +811,10 @@ async function initAuth() {
   tabSignIn.onclick = () => setMode("signin");
   tabSignUp.onclick = () => setMode("signup");
 
+  const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
+  cloudinaryCloud = cfg.cloudinaryCloudName || "";
+  cloudinaryPreset = cfg.cloudinaryUploadPreset || "";
+
   // Wire password form immediately — do not wait for Google GIS (that caused GET submits).
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -846,7 +857,6 @@ async function initAuth() {
     }
   }
 
-  const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
   wireGoogle(cfg.googleClientId);
 }
 
@@ -1399,6 +1409,7 @@ function pointNoteWriteBody(n, latlng) {
     lat: latlng.lat,
     lon: latlng.lng,
     radiusMeters: n.radiusMeters ?? DEFAULT_POINT_RADIUS,
+    photoUrls: n.photoUrls ?? null,
   };
 }
 
@@ -1700,6 +1711,23 @@ async function refreshSheet() {
           <button type="button" class="btn ghost danger del">${t("delete")}</button>
         </div>`;
       li.querySelector("p").textContent = n.text;
+      const photoUrls = parsePhotoUrls(n.photoUrls);
+      if (photoUrls.length) {
+        const row = document.createElement("div");
+        row.className = "note-card-photos";
+        for (const url of photoUrls) {
+          const a = document.createElement("a");
+          a.href = url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = "";
+          a.appendChild(img);
+          row.appendChild(a);
+        }
+        li.querySelector("p").after(row);
+      }
       li.querySelector(".move")?.addEventListener("click", () => startPointMove(n));
       li.querySelector(".edit").onclick = () => openNoteForm(n);
       li.querySelector(".del").onclick = async () => {
@@ -1721,8 +1749,66 @@ async function refreshSheet() {
   }
 }
 
-/** Coords for the note being created/edited (Point level). */
-let formPointCoords = null;
+function photosEnabled() {
+  return Boolean(cloudinaryCloud && cloudinaryPreset);
+}
+
+function parsePhotoUrls(raw) {
+  if (!raw) return [];
+  return String(raw)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, MAX_NOTE_PHOTOS);
+}
+
+function renderFormPhotoThumbs() {
+  const thumbs = document.getElementById("note-photos-thumbs");
+  const add = document.getElementById("note-photo-add");
+  if (!thumbs) return;
+  thumbs.innerHTML = "";
+  formPhotoUrls.forEach((url, i) => {
+    const wrap = document.createElement("div");
+    wrap.className = "note-photo-thumb";
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = "";
+    const rm = document.createElement("button");
+    rm.type = "button";
+    rm.textContent = "×";
+    rm.setAttribute("aria-label", t("notePhotoRemove"));
+    rm.title = t("notePhotoRemove");
+    rm.addEventListener("click", () => {
+      formPhotoUrls.splice(i, 1);
+      renderFormPhotoThumbs();
+    });
+    wrap.appendChild(img);
+    wrap.appendChild(rm);
+    thumbs.appendChild(wrap);
+  });
+  add?.classList.toggle("hidden", formPhotoUrls.length >= MAX_NOTE_PHOTOS);
+}
+
+function setPhotoStatus(msg, isError) {
+  const el = document.getElementById("note-photos-status");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.classList.toggle("hidden", !msg);
+  el.classList.toggle("is-error", Boolean(isError));
+}
+
+async function uploadNotePhoto(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("upload_preset", cloudinaryPreset);
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudinaryCloud)}/image/upload`, {
+    method: "POST",
+    body: fd,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.secure_url) throw new Error(body.error?.message || "upload failed");
+  return body.secure_url;
+}
 
 function openNoteForm(note = null) {
   editingNoteId = note?.noteId ?? null;
@@ -1748,6 +1834,11 @@ function openNoteForm(note = null) {
   if (showRadius) {
     radiusInput.value = note?.radiusMeters ?? context?.radiusMeters ?? DEFAULT_POINT_RADIUS;
   }
+  formPhotoUrls = parsePhotoUrls(note?.photoUrls);
+  const photoWrap = document.getElementById("note-photos-wrap");
+  photoWrap?.classList.toggle("hidden", !photosEnabled());
+  renderFormPhotoThumbs();
+  setPhotoStatus("");
   stopNoteVoice();
   document.getElementById("place-note-fab")?.classList.add("hidden");
   els.dialog.showModal();
@@ -1764,6 +1855,27 @@ els.scoreOverall.addEventListener("input", () => {
 });
 
 els.addNoteBtn.addEventListener("click", () => openNoteForm());
+document.getElementById("note-photos-input")?.addEventListener("change", async (e) => {
+  const input = e.target;
+  const files = [...(input.files || [])];
+  input.value = "";
+  if (!photosEnabled() || !files.length) return;
+  const room = MAX_NOTE_PHOTOS - formPhotoUrls.length;
+  if (room <= 0) {
+    setPhotoStatus(t("notePhotosMax"), true);
+    return;
+  }
+  setPhotoStatus(t("loading"));
+  try {
+    for (const file of files.slice(0, room)) {
+      formPhotoUrls.push(await uploadNotePhoto(file));
+      renderFormPhotoThumbs();
+    }
+    setPhotoStatus(files.length > room ? t("notePhotosMax") : "");
+  } catch {
+    setPhotoStatus(t("notePhotoFail"), true);
+  }
+});
 document.getElementById("note-cancel").addEventListener("click", () => {
   stopNoteVoice();
   els.dialog.close();
@@ -1796,6 +1908,7 @@ els.form.addEventListener("submit", async (e) => {
     const r = Number(document.getElementById("note-radius").value);
     body.radiusMeters = Number.isFinite(r) ? r : DEFAULT_POINT_RADIUS;
   }
+  body.photoUrls = formPhotoUrls.length ? formPhotoUrls.join(",") : null;
 
   let saved;
   if (editingNoteId) {

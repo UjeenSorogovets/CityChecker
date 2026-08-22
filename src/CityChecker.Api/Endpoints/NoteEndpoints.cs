@@ -11,6 +11,8 @@ namespace CityChecker.Api.Endpoints;
 public static class NoteEndpoints
 {
     public const int DefaultPointRadiusMeters = 50;
+    public const int MaxNotePhotos = 4;
+    public const int MaxPhotoUrlsLength = 2000;
     public const int MinPointRadiusMeters = 50;
     public const int MaxPointRadiusMeters = 2000;
 
@@ -78,6 +80,7 @@ public static class NoteEndpoints
             note.ScoreShops = built.ScoreShops;
             note.ScoreTransport = built.ScoreTransport;
             note.ScoreSafety = built.ScoreSafety;
+            note.PhotoUrls = built.PhotoUrls;
             note.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync();
             return Results.Ok(ToDto(note));
@@ -106,6 +109,8 @@ public static class NoteEndpoints
             return Results.BadRequest(new { error = "ScoreOverall must be 1–10." });
         if (!ScoreOk(body.ScoreNature) || !ScoreOk(body.ScoreShops) || !ScoreOk(body.ScoreTransport) || !ScoreOk(body.ScoreSafety))
             return Results.BadRequest(new { error = "Optional scores must be 1–10 when set." });
+        if (NormalizePhotoUrls(body.PhotoUrls) is null && !string.IsNullOrWhiteSpace(body.PhotoUrls))
+            return Results.BadRequest(new { error = "PhotoUrls must be up to 4 Cloudinary HTTPS links." });
 
         return body.Level switch
         {
@@ -155,8 +160,26 @@ public static class NoteEndpoints
             ScoreNature = body.ScoreNature,
             ScoreShops = body.ScoreShops,
             ScoreTransport = body.ScoreTransport,
-            ScoreSafety = body.ScoreSafety
+            ScoreSafety = body.ScoreSafety,
+            PhotoUrls = NormalizePhotoUrls(body.PhotoUrls),
         };
+    }
+
+    static string? NormalizePhotoUrls(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var parts = raw.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length > MaxNotePhotos) return null;
+        foreach (var p in parts)
+        {
+            if (!Uri.TryCreate(p, UriKind.Absolute, out var uri)
+                || uri.Scheme != Uri.UriSchemeHttps
+                || !uri.Host.Equals("res.cloudinary.com", StringComparison.OrdinalIgnoreCase)
+                || p.Length > 500)
+                return null;
+        }
+        var joined = string.Join(",", parts);
+        return joined.Length > MaxPhotoUrlsLength ? null : joined;
     }
 
     static async Task<Guid?> ResolveDistrictAsync(AppDbContext db, Guid cityId, double lat, double lon)
@@ -171,6 +194,6 @@ public static class NoteEndpoints
     static NoteDto ToDto(Note n) => new(
         n.NoteId, n.AuthorGoogleId, n.Level, n.TargetCityId, n.TargetDistrictId, n.TargetBuildingId,
         n.Lat, n.Lon, n.RadiusMeters,
-        n.Text, n.ScoreOverall, n.ScoreNature, n.ScoreShops, n.ScoreTransport, n.ScoreSafety,
+        n.Text, n.PhotoUrls, n.ScoreOverall, n.ScoreNature, n.ScoreShops, n.ScoreTransport, n.ScoreSafety,
         n.CreatedAt, n.UpdatedAt);
 }
