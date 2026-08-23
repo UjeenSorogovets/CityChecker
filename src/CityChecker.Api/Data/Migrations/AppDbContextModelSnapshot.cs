@@ -611,6 +611,10 @@ namespace CityChecker.Api.Data.Migrations
                     b.Property<int?>("RadiusMeters")
                         .HasColumnType("integer");
 
+                    b.Property<string>("PhotoUrls")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<int?>("ScoreNature")
                         .HasColumnType("integer");
 

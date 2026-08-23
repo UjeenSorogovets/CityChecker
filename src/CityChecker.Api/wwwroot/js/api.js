@@ -1,14 +1,25 @@
 const TOKEN_KEY = "cc_id_token";
 
+function migrateSessionToken() {
+  if (localStorage.getItem(TOKEN_KEY)) return;
+  const old = sessionStorage.getItem(TOKEN_KEY);
+  if (!old) return;
+  localStorage.setItem(TOKEN_KEY, old);
+  sessionStorage.removeItem(TOKEN_KEY);
+}
+
 export function getToken() {
-  return sessionStorage.getItem(TOKEN_KEY);
+  migrateSessionToken();
+  return localStorage.getItem(TOKEN_KEY);
 }
 
 export function setToken(token) {
-  sessionStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(TOKEN_KEY, token);
+  sessionStorage.removeItem(TOKEN_KEY);
 }
 
 export function clearToken() {
+  localStorage.removeItem(TOKEN_KEY);
   sessionStorage.removeItem(TOKEN_KEY);
 }
 

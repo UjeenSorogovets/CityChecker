@@ -25,6 +25,14 @@ let buildingLayer = L.layerGroup();
 /** @type {L.LayerGroup} */
 let pointLayer = L.layerGroup();
 /** @type {L.LayerGroup} */
+let userLocationLayer = L.layerGroup();
+/** @type {HTMLElement | null} */
+let userHeadingEl = null;
+/** @type {number | null} */
+let userHeadingDeg = null;
+let userOrientWired = false;
+let userOrientGotAbsolute = false;
+/** @type {L.LayerGroup} */
 let riskSourceLayer = L.layerGroup();
 
 let cities = [];
@@ -35,9 +43,18 @@ let lockedCityId = null;
 let selectedDistrictId = null;
 let context = null;
 let editingNoteId = null;
+/** @type {object | null} */
+let pendingMoveNote = null;
 /** @type {"comfort"|"environment"} */
 let mapMode = localStorage.getItem(MAP_MODE_KEY) === "environment" ? "environment" : "comfort";
-const DEFAULT_POINT_RADIUS = 300;
+const DEFAULT_POINT_RADIUS = 50;
+const MAX_NOTE_PHOTOS = 4;
+/** Coords for the note being created/edited (Point level). */
+let formPointCoords = null;
+/** @type {string[]} */
+let formPhotoUrls = [];
+let cloudinaryCloud = "";
+let cloudinaryPreset = "";
 const FAB_DRAG_MIN_PX = 8;
 const SHEET_DRAG_THRESHOLD = 40;
 const SHEET_SNAP_ORDER = ["peek", "half", "full"];
@@ -455,16 +472,16 @@ function updateSheetHandleAria() {
 }
 
 function updateFabPosition() {
-  const fab = document.getElementById("place-note-fab");
-  if (!fab || fab.classList.contains("hidden")) return;
+  const stack = document.getElementById("map-fabs");
+  if (!stack) return;
   if (!isMobileSheet()) {
-    fab.style.bottom = "";
+    stack.style.bottom = "";
     return;
   }
   const sheetH = els.sheet.getBoundingClientRect().height;
   const safe =
     parseInt(getComputedStyle(document.documentElement).getPropertyValue("env(safe-area-inset-bottom)")) || 0;
-  fab.style.bottom = `${sheetH + 12 + safe}px`;
+  stack.style.bottom = `${sheetH + 12 + safe}px`;
 }
 
 function cycleSheetSnap() {
@@ -562,6 +579,7 @@ function updatePlaceNoteFabLabel() {
 
 async function clearSelection() {
   if (!lockedCityId) return;
+  cancelPointMove();
   selectedDistrictId = null;
   applyDistrictStyles();
   context = { level: "City", cityId: lockedCityId, title: lockedCityName() };
@@ -633,6 +651,121 @@ function initPlaceNoteFab() {
   fab.addEventListener("pointercancel", finishDrag);
 }
 
+function setLocateBusy(busy) {
+  const btn = document.getElementById("locate-me-btn");
+  if (!btn) return;
+  btn.disabled = busy;
+  btn.setAttribute("aria-busy", busy ? "true" : "false");
+}
+
+function compassHeadingFromEvent(e) {
+  if (typeof e.webkitCompassHeading === "number" && !Number.isNaN(e.webkitCompassHeading)) {
+    return e.webkitCompassHeading;
+  }
+  if (typeof e.alpha !== "number" || Number.isNaN(e.alpha)) return null;
+  const screenAngle = screen.orientation?.angle ?? window.orientation ?? 0;
+  let heading = (360 - e.alpha + Number(screenAngle || 0)) % 360;
+  if (heading < 0) heading += 360;
+  return heading;
+}
+
+function applyUserHeading() {
+  if (!userHeadingEl || userHeadingDeg == null) return;
+  userHeadingEl.style.transform = `rotate(${userHeadingDeg}deg)`;
+}
+
+function onUserOrientation(e) {
+  const heading = compassHeadingFromEvent(e);
+  if (heading == null) return;
+  if (e.type === "deviceorientationabsolute") userOrientGotAbsolute = true;
+  else if (userOrientGotAbsolute) return;
+  userHeadingDeg = heading;
+  applyUserHeading();
+}
+
+function startUserOrientation() {
+  if (userOrientWired) return;
+  userOrientWired = true;
+  window.addEventListener("deviceorientationabsolute", onUserOrientation, true);
+  window.addEventListener("deviceorientation", onUserOrientation, true);
+}
+
+async function ensureOrientationPermission() {
+  for (const Ev of [window.DeviceOrientationEvent, window.DeviceMotionEvent]) {
+    if (Ev && typeof Ev.requestPermission === "function") {
+      try {
+        await Ev.requestPermission();
+      } catch {
+        /* iOS may deny */
+      }
+    }
+  }
+  startUserOrientation();
+}
+
+function bindUserHeadingEl(marker) {
+  const hook = () => {
+    userHeadingEl = marker.getElement()?.querySelector(".user-heading-rot") ?? null;
+    applyUserHeading();
+  };
+  hook();
+  if (!userHeadingEl) requestAnimationFrame(hook);
+}
+
+function initLocateMe() {
+  const btn = document.getElementById("locate-me-btn");
+  if (!btn || !map || btn.dataset.wired) return;
+  btn.dataset.wired = "1";
+
+  map.on("locationfound", (e) => {
+    setLocateBusy(false);
+    userLocationLayer.clearLayers();
+    userHeadingEl = null;
+    if (typeof e.heading === "number" && e.heading >= 0 && userHeadingDeg == null) {
+      userHeadingDeg = e.heading;
+    }
+    L.circle(e.latlng, {
+      radius: e.accuracy,
+      color: "#4285F4",
+      weight: 1,
+      fillColor: "#4285F4",
+      fillOpacity: 0.15,
+      interactive: false,
+    }).addTo(userLocationLayer);
+    const marker = L.marker(e.latlng, {
+      interactive: false,
+      keyboard: false,
+      zIndexOffset: 1200,
+      icon: L.divIcon({
+        className: "user-heading-icon",
+        iconSize: [96, 96],
+        iconAnchor: [48, 48],
+        html: '<div class="user-heading-rot"><div class="user-heading-cone" aria-hidden="true"></div><div class="user-heading-dot"></div></div>',
+      }),
+    }).addTo(userLocationLayer);
+    bindUserHeadingEl(marker);
+  });
+
+  map.on("locationerror", () => {
+    setLocateBusy(false);
+    alert(t("locateFail"));
+  });
+
+  btn.addEventListener("click", async () => {
+    if (!map || btn.disabled) return;
+    setLocateBusy(true);
+    await ensureOrientationPermission();
+    map.stopLocate();
+    map.locate({
+      setView: true,
+      maxZoom: 16,
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 8000,
+    });
+  });
+}
+
 function updateZoomLabel() {
   if (!map) return;
   const mode = currentMode(map.getZoom());
@@ -678,6 +811,10 @@ async function initAuth() {
   tabSignIn.onclick = () => setMode("signin");
   tabSignUp.onclick = () => setMode("signup");
 
+  const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
+  cloudinaryCloud = cfg.cloudinaryCloudName || "";
+  cloudinaryPreset = cfg.cloudinaryUploadPreset || "";
+
   // Wire password form immediately — do not wait for Google GIS (that caused GET submits).
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -696,7 +833,6 @@ async function initAuth() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw { message: body.error || t("authFailed"), status: res.status, body };
       setToken(body.token);
-      sessionStorage.setItem("cc_had_token", "1");
       history.replaceState(null, "", location.pathname);
       await api("/api/cities");
       showApp();
@@ -719,12 +855,8 @@ async function initAuth() {
       }
       clearToken();
     }
-  } else if (getToken() === null && sessionStorage.getItem("cc_had_token")) {
-    els.authError.textContent = t("sessionExpired");
-    els.authError.classList.remove("hidden");
   }
 
-  const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
   wireGoogle(cfg.googleClientId);
 }
 
@@ -740,9 +872,15 @@ function wireGoogle(clientId) {
     window.google.accounts.id.initialize({
       client_id: clientId,
       callback: async (response) => {
-        setToken(response.credential);
-        sessionStorage.setItem("cc_had_token", "1");
         try {
+          const res = await fetch("/api/auth/google", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ credential: response.credential }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) throw { message: body.error || t("authFailed"), status: res.status, body };
+          setToken(body.token);
           await api("/api/cities");
           showApp();
         } catch (err) {
@@ -906,7 +1044,10 @@ async function enterCity(city, { persist = true } = {}) {
   lockedCityId = city.cityId;
   selectedDistrictId = null;
   mapShortlistIds = null;
+  cancelPointMove();
   buildingLayer.clearLayers();
+  userLocationLayer.clearLayers();
+  userHeadingEl = null;
   setPlaceNoteFabVisible(true);
   if (map.hasLayer(cityLayer)) map.removeLayer(cityLayer);
 
@@ -965,6 +1106,7 @@ function initMap() {
   cityLayer.addTo(map);
   buildingLayer.addTo(map);
   pointLayer.addTo(map);
+  userLocationLayer.addTo(map);
 
   map.on("zoomend", scheduleMapUpdate);
   map.on("moveend", scheduleMapUpdate);
@@ -976,6 +1118,7 @@ function initMap() {
   });
 
   initPlaceNoteFab();
+  initLocateMe();
   initHousing({
     map,
     getActiveCityId: () => activeCityId,
@@ -1030,6 +1173,7 @@ async function onZoomOrMove() {
 
   setDistrictInteractive(mode === "district" || mode === "city");
   updateRiskSourceVisibility();
+  if (pendingMoveNote) return;
   if (mode === "building") {
     await loadBuildingMarkers();
     await loadPointNotes();
@@ -1040,11 +1184,12 @@ async function onZoomOrMove() {
 }
 
 function setDistrictInteractive(interactive) {
-  applyDistrictStyles(interactive);
+  const on = interactive && !pendingMoveNote;
+  applyDistrictStyles(on);
   if (!districtLayer) return;
   districtLayer.eachLayer((layer) => {
     const el = layer.getElement?.() || layer._path;
-    if (el) el.style.pointerEvents = interactive ? "auto" : "none";
+    if (el) el.style.pointerEvents = on ? "auto" : "none";
   });
 }
 
@@ -1183,6 +1328,10 @@ async function loadDistricts(cityId) {
       layer.on("click", (e) => {
         if (!lockedCityId) return;
         L.DomEvent.stopPropagation(e);
+        if (pendingMoveNote) {
+          commitPointMove(pendingMoveNote, e.latlng);
+          return;
+        }
         selectDistrict(feature.properties);
       });
     },
@@ -1220,7 +1369,7 @@ async function loadPointNotes() {
         fillOpacity: 0.25,
         weight: 1.5,
         opacity: 0.85,
-        interactive: false, // coverage only — clicks pass through so new points can be placed inside
+        interactive: false,
       });
       pointLayer.addLayer(circle);
       const dot = L.circleMarker([n.lat, n.lon], {
@@ -1232,12 +1381,76 @@ async function loadPointNotes() {
       });
       dot.on("click", (e) => {
         L.DomEvent.stopPropagation(e);
+        if (pendingMoveNote) {
+          commitPointMove(pendingMoveNote, e.latlng);
+          return;
+        }
         selectPointNote(n);
       });
       pointLayer.addLayer(dot);
     }
   } catch (err) {
     if (err.status === 401) showAuthError({ message: t("sessionExpired") });
+  }
+}
+
+function pointNoteWriteBody(n, latlng) {
+  return {
+    level: "Point",
+    targetCityId: n.targetCityId,
+    targetDistrictId: n.targetDistrictId ?? null,
+    targetBuildingId: null,
+    text: n.text,
+    scoreOverall: n.scoreOverall,
+    scoreNature: n.scoreNature ?? null,
+    scoreShops: n.scoreShops ?? null,
+    scoreTransport: n.scoreTransport ?? null,
+    scoreSafety: n.scoreSafety ?? null,
+    lat: latlng.lat,
+    lon: latlng.lng,
+    radiusMeters: n.radiusMeters ?? DEFAULT_POINT_RADIUS,
+    photoUrls: n.photoUrls ?? null,
+  };
+}
+
+function setMoveModeUi(on) {
+  map?.getContainer()?.classList.toggle("moving-point", on);
+  const mode = map ? currentMode(map.getZoom()) : "district";
+  setDistrictInteractive(mode === "district" || mode === "city");
+}
+
+function startPointMove(n) {
+  if (pendingMoveNote && pendingMoveNote.noteId === n.noteId) {
+    cancelPointMove();
+    refreshSheet();
+    return;
+  }
+  pendingMoveNote = n;
+  setMoveModeUi(true);
+  refreshSheet();
+}
+
+function cancelPointMove() {
+  if (!pendingMoveNote) return;
+  pendingMoveNote = null;
+  setMoveModeUi(false);
+}
+
+async function commitPointMove(n, latlng) {
+  pendingMoveNote = null;
+  setMoveModeUi(false);
+  try {
+    const saved = await api(`/api/notes/${n.noteId}`, {
+      method: "PUT",
+      body: JSON.stringify(pointNoteWriteBody(n, latlng)),
+    });
+    await reloadDistrictColors();
+    await loadPointNotes();
+    if (saved) await selectPointNote(saved);
+    else await refreshSheet();
+  } catch (err) {
+    if (err.status === 401) showAuthError({ message: t("sessionExpired") });
+    else await loadPointNotes();
   }
 }
 
@@ -1322,6 +1535,10 @@ async function loadBuildingMarkers() {
     m.bindTooltip(bld.addressLine);
     m.on("click", (e) => {
       L.DomEvent.stopPropagation(e);
+      if (pendingMoveNote) {
+        commitPointMove(pendingMoveNote, e.latlng);
+        return;
+      }
       selectBuilding(bld);
     });
     buildingLayer.addLayer(m);
@@ -1331,6 +1548,10 @@ async function loadBuildingMarkers() {
 async function onMapClick(e) {
   if (!requireAuthOrGate()) {
     showAuthError({ message: t("sessionExpired") });
+    return;
+  }
+  if (pendingMoveNote) {
+    await commitPointMove(pendingMoveNote, e.latlng);
     return;
   }
   if (housingMapClick(e.latlng)) return;
@@ -1452,11 +1673,15 @@ async function refreshSheet() {
             Math.abs(n.lon - context.lon) < 1e-5)
       );
     }
-    els.sheetMeta.textContent =
-      agg.noteCount > 0 && agg.scoreOverall != null
-        ? `${t("avgScore")}: ${agg.scoreOverall.toFixed(1)} (${agg.noteCount})`
-        : "";
-    if (context.level === "District" && context.districtId) {
+    if (pendingMoveNote) {
+      els.sheetMeta.textContent = t("movingNoteHint");
+    } else {
+      els.sheetMeta.textContent =
+        agg.noteCount > 0 && agg.scoreOverall != null
+          ? `${t("avgScore")}: ${agg.scoreOverall.toFixed(1)} (${agg.noteCount})`
+          : "";
+    }
+    if (!pendingMoveNote && context.level === "District" && context.districtId) {
       const envLine = formatEnvMeta(context.districtId);
       els.sheetMeta.textContent = els.sheetMeta.textContent
         ? `${els.sheetMeta.textContent} · ${envLine}`
@@ -1475,14 +1700,35 @@ async function refreshSheet() {
       const li = document.createElement("li");
       li.className = "note-card";
       const radiusMeta = n.radiusMeters != null ? ` · ${n.radiusMeters}m` : "";
+      const canMove = n.level === "Point" || (n.lat != null && n.lon != null);
+      const movingThis = pendingMoveNote && pendingMoveNote.noteId === n.noteId;
       li.innerHTML = `
         <div><span class="score">${n.scoreOverall}/10</span><span class="meta">${n.level}${radiusMeta}</span></div>
         <p></p>
         <div class="note-actions">
+          ${canMove ? `<button type="button" class="btn ghost move">${movingThis ? t("cancel") : t("moveNote")}</button>` : ""}
           <button type="button" class="btn ghost edit">${t("editNote")}</button>
           <button type="button" class="btn ghost danger del">${t("delete")}</button>
         </div>`;
       li.querySelector("p").textContent = n.text;
+      const photoUrls = parsePhotoUrls(n.photoUrls);
+      if (photoUrls.length) {
+        const row = document.createElement("div");
+        row.className = "note-card-photos";
+        for (const url of photoUrls) {
+          const a = document.createElement("a");
+          a.href = url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = "";
+          a.appendChild(img);
+          row.appendChild(a);
+        }
+        li.querySelector("p").after(row);
+      }
+      li.querySelector(".move")?.addEventListener("click", () => startPointMove(n));
       li.querySelector(".edit").onclick = () => openNoteForm(n);
       li.querySelector(".del").onclick = async () => {
         await api(`/api/notes/${n.noteId}`, { method: "DELETE" });
@@ -1503,8 +1749,66 @@ async function refreshSheet() {
   }
 }
 
-/** Coords for the note being created/edited (Point level). */
-let formPointCoords = null;
+function photosEnabled() {
+  return Boolean(cloudinaryCloud && cloudinaryPreset);
+}
+
+function parsePhotoUrls(raw) {
+  if (!raw) return [];
+  return String(raw)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, MAX_NOTE_PHOTOS);
+}
+
+function renderFormPhotoThumbs() {
+  const thumbs = document.getElementById("note-photos-thumbs");
+  const add = document.getElementById("note-photo-add");
+  if (!thumbs) return;
+  thumbs.innerHTML = "";
+  formPhotoUrls.forEach((url, i) => {
+    const wrap = document.createElement("div");
+    wrap.className = "note-photo-thumb";
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = "";
+    const rm = document.createElement("button");
+    rm.type = "button";
+    rm.textContent = "×";
+    rm.setAttribute("aria-label", t("notePhotoRemove"));
+    rm.title = t("notePhotoRemove");
+    rm.addEventListener("click", () => {
+      formPhotoUrls.splice(i, 1);
+      renderFormPhotoThumbs();
+    });
+    wrap.appendChild(img);
+    wrap.appendChild(rm);
+    thumbs.appendChild(wrap);
+  });
+  add?.classList.toggle("hidden", formPhotoUrls.length >= MAX_NOTE_PHOTOS);
+}
+
+function setPhotoStatus(msg, isError) {
+  const el = document.getElementById("note-photos-status");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.classList.toggle("hidden", !msg);
+  el.classList.toggle("is-error", Boolean(isError));
+}
+
+async function uploadNotePhoto(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("upload_preset", cloudinaryPreset);
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudinaryCloud)}/image/upload`, {
+    method: "POST",
+    body: fd,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.secure_url) throw new Error(body.error?.message || "upload failed");
+  return body.secure_url;
+}
 
 function openNoteForm(note = null) {
   editingNoteId = note?.noteId ?? null;
@@ -1530,6 +1834,11 @@ function openNoteForm(note = null) {
   if (showRadius) {
     radiusInput.value = note?.radiusMeters ?? context?.radiusMeters ?? DEFAULT_POINT_RADIUS;
   }
+  formPhotoUrls = parsePhotoUrls(note?.photoUrls);
+  const photoWrap = document.getElementById("note-photos-wrap");
+  photoWrap?.classList.toggle("hidden", !photosEnabled());
+  renderFormPhotoThumbs();
+  setPhotoStatus("");
   stopNoteVoice();
   document.getElementById("place-note-fab")?.classList.add("hidden");
   els.dialog.showModal();
@@ -1546,6 +1855,27 @@ els.scoreOverall.addEventListener("input", () => {
 });
 
 els.addNoteBtn.addEventListener("click", () => openNoteForm());
+document.getElementById("note-photos-input")?.addEventListener("change", async (e) => {
+  const input = e.target;
+  const files = [...(input.files || [])];
+  input.value = "";
+  if (!photosEnabled() || !files.length) return;
+  const room = MAX_NOTE_PHOTOS - formPhotoUrls.length;
+  if (room <= 0) {
+    setPhotoStatus(t("notePhotosMax"), true);
+    return;
+  }
+  setPhotoStatus(t("loading"));
+  try {
+    for (const file of files.slice(0, room)) {
+      formPhotoUrls.push(await uploadNotePhoto(file));
+      renderFormPhotoThumbs();
+    }
+    setPhotoStatus(files.length > room ? t("notePhotosMax") : "");
+  } catch {
+    setPhotoStatus(t("notePhotoFail"), true);
+  }
+});
 document.getElementById("note-cancel").addEventListener("click", () => {
   stopNoteVoice();
   els.dialog.close();
@@ -1578,6 +1908,7 @@ els.form.addEventListener("submit", async (e) => {
     const r = Number(document.getElementById("note-radius").value);
     body.radiusMeters = Number.isFinite(r) ? r : DEFAULT_POINT_RADIUS;
   }
+  body.photoUrls = formPhotoUrls.length ? formPhotoUrls.join(",") : null;
 
   let saved;
   if (editingNoteId) {

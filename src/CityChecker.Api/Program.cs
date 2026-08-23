@@ -196,6 +196,8 @@ app.MapGet("/api/config", (IConfiguration config) => Results.Ok(new
 {
     googleClientId = config["Google:ClientId"],
     publicBaseUrl = config["App:PublicBaseUrl"]?.TrimEnd('/'),
+    cloudinaryCloudName = config["Cloudinary:CloudName"],
+    cloudinaryUploadPreset = config["Cloudinary:UploadPreset"],
 }));
 
 app.MapAuthEndpoints();

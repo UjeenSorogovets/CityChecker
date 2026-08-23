@@ -127,6 +127,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasKey(x => x.NoteId);
             e.Property(x => x.AuthorGoogleId).HasMaxLength(64).IsRequired();
             e.Property(x => x.Text).HasMaxLength(4000).IsRequired();
+            e.Property(x => x.PhotoUrls).HasMaxLength(2000);
             e.HasOne(x => x.TargetCity).WithMany().HasForeignKey(x => x.TargetCityId);
             e.HasOne(x => x.TargetDistrict).WithMany().HasForeignKey(x => x.TargetDistrictId)
                 .OnDelete(DeleteBehavior.SetNull);

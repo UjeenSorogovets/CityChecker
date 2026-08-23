@@ -1,4 +1,4 @@
-import { api } from "./api.js";
+import { api, getToken } from "./api.js";
 import { t } from "./i18n.js";
 
 /** @type {L.LayerGroup | null} */
@@ -424,7 +424,7 @@ async function saveProfile() {
 }
 
 async function exportCsv() {
-  const token = sessionStorage.getItem("cc_id_token");
+  const token = getToken();
   const res = await fetch("/api/housing/export.csv", {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

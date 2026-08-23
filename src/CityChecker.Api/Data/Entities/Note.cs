@@ -12,6 +12,7 @@ public class Note
     public double? Lon { get; set; }
     public int? RadiusMeters { get; set; }
     public string Text { get; set; } = "";
+    public string? PhotoUrls { get; set; }
     public int ScoreOverall { get; set; }
     public int? ScoreNature { get; set; }
     public int? ScoreShops { get; set; }
