@@ -8,4 +8,4 @@
 | [ssh-remote.md](ssh-remote.md) | Local `.env` SSH helper + Cursor MCP config |
 
 Quick start commands: [../README.md](../README.md)  
-AI / architecture context: [../AGENTS.md](../AGENTS.md)
+AI / architecture (detailed): [ai/](ai/README.md) · short entry: [../AGENTS.md](../AGENTS.md)

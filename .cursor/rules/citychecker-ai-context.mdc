@@ -1,0 +1,32 @@
+---
+description: CityChecker AI context — read docs/ai/ before non-trivial work
+alwaysApply: true
+---
+
+# CityChecker AI context
+
+Before non-trivial changes, read the relevant file under **`docs/ai/`**:
+
+| Topic | File |
+|-------|------|
+| Index | `docs/ai/README.md` |
+| Product / layout | `docs/ai/00-overview.md` |
+| How to change code | `docs/ai/01-conventions.md` |
+| API / DB / auth | `docs/ai/02-architecture.md` |
+| Map / sheet / modes | `docs/ai/03-frontend.md` |
+| Environment layer | `docs/ai/04-environment.md` |
+| Imports | `docs/ai/05-data-imports.md` |
+| Deploy / backup / SSH | `docs/ai/06-ops.md` |
+| Gotchas | `docs/ai/07-gotchas.md` |
+
+Hard rules (always):
+
+- Minimal diff; English in code; no commit/push unless asked
+- Never commit or print `.env` secrets / `SSH_PASSWORD`
+- JWT in `sessionStorage` (`cc_id_token`); city lock in `localStorage` (`cc_city_id`)
+- District IDs unstable across re-import — restore Postgres with user data
+- Do not call `bringToFront` on `L.LayerGroup`; env load uses `envLoadGen`, not `mapAbort`
+- After SPA JS changes: bump `app.js?v=` in `index.html`
+- Humans: `README.md` + `docs/`; AI detail: `docs/ai/`
+
+Root `AGENTS.md` is a short pointer only.

@@ -41,5 +41,6 @@ Details: [docs/backup-restore.md](docs/backup-restore.md)
 
 | | |
 |--|--|
-| [docs/](docs/README.md) | Full ops docs |
-| [AGENTS.md](AGENTS.md) | Architecture for AI assistants |
+| [docs/](docs/README.md) | Human ops docs |
+| [docs/ai/](docs/ai/README.md) | Detailed context for Cursor / AI agents |
+| [AGENTS.md](AGENTS.md) | Short AI entry point |
