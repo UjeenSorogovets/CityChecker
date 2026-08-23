@@ -185,6 +185,13 @@ body {
   opacity: 0.55;
   cursor: wait;
 }
+.reset-north-btn:not(:disabled) {
+  color: #0d6e6e;
+}
+.reset-north-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 .user-heading-icon {
   background: none !important;
   border: none !important;
@@ -786,6 +793,7 @@ body.place-note-dragging .leaflet-container { pointer-events: none; }
     right: calc(360px + 1rem);
   }
   .locate-me-btn,
+  .reset-north-btn,
   .place-note-fab {
     width: 3.25rem;
     height: 3.25rem;

@@ -1,6 +1,6 @@
 # Frontend
 
-SPA: `src/CityChecker.Api/wwwroot/` — no bundler. Entry: `index.html` loads `app.js?v=env5` as ES module.
+SPA: `src/CityChecker.Api/wwwroot/` — no bundler. Entry: `index.html` loads `app.js?v=rotate1` as ES module. Map rotation: **leaflet-rotate** 0.2.8 (CDN).
 
 | File | Role |
 |------|------|
@@ -38,6 +38,15 @@ Constants: `ZOOM_CITY=10`, `ZOOM_DISTRICT=14`, `ZOOM_INTO_DISTRICT=12`.
 | ≥ 15 | building | building markers in viewport bbox |
 
 District GeoJSON loads via `mapAbort`; environment load uses separate **`envLoadGen`** counter.
+
+## Map rotation (leaflet-rotate)
+
+- Enabled at `L.map()` creation: `rotate: true`, `touchRotate: true`, `shiftKeyRotate: true`  
+- **Mobile:** two-finger twist  
+- **Desktop:** Shift + drag  
+- **Reset north:** `#reset-north-btn` in `#map-fabs` → `map.setBearing(0)`; disabled when bearing ≈ 0  
+- Locate heading cone: `applyUserHeading()` subtracts `map.getBearing()` so direction stays correct when map is rotated  
+- Do not enable built-in `rotateControl` — custom button matches locate/FAB stack  
 
 ## Map modes (Comfort vs Environment)
 

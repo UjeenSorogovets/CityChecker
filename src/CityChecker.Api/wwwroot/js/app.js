@@ -671,7 +671,41 @@ function compassHeadingFromEvent(e) {
 
 function applyUserHeading() {
   if (!userHeadingEl || userHeadingDeg == null) return;
-  userHeadingEl.style.transform = `rotate(${userHeadingDeg}deg)`;
+  const mapBearing = map?.getBearing?.() ?? 0;
+  userHeadingEl.style.transform = `rotate(${userHeadingDeg - mapBearing}deg)`;
+}
+
+function normalizeBearing(deg) {
+  return ((deg % 360) + 360) % 360;
+}
+
+function updateResetNorthBtn() {
+  const btn = document.getElementById("reset-north-btn");
+  if (!btn || !map?.getBearing) return;
+  const bearing = normalizeBearing(map.getBearing());
+  const offNorth = bearing > 1 && bearing < 359;
+  btn.disabled = !offNorth;
+}
+
+function initResetNorth() {
+  const btn = document.getElementById("reset-north-btn");
+  if (!btn || !map || btn.dataset.wired) return;
+  btn.dataset.wired = "1";
+
+  map.on("rotate", () => {
+    applyUserHeading();
+    updateResetNorthBtn();
+  });
+  map.on("rotateend", updateResetNorthBtn);
+
+  btn.addEventListener("click", () => {
+    if (!map?.setBearing) return;
+    map.setBearing(0);
+    applyUserHeading();
+    updateResetNorthBtn();
+  });
+
+  updateResetNorthBtn();
 }
 
 function onUserOrientation(e) {
@@ -1095,6 +1129,11 @@ function initMap() {
     maxBounds: POLAND_BOUNDS.pad(0.15),
     minZoom: 6,
     zoomControl: true,
+    rotate: true,
+    touchRotate: true,
+    shiftKeyRotate: true,
+    bearing: 0,
+    rotateControl: false,
   });
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
@@ -1119,6 +1158,7 @@ function initMap() {
 
   initPlaceNoteFab();
   initLocateMe();
+  initResetNorth();
   initHousing({
     map,
     getActiveCityId: () => activeCityId,
