@@ -328,21 +328,12 @@ async function reloadOtodomPins(opts = {}) {
   }
 }
 
-function otodomOfferLabel(p) {
-  const parts = [];
-  if (p.rooms) parts.push(`${p.rooms} ${t("otodomRoomsShort")}`);
-  if (p.areaM2 != null) parts.push(`${p.areaM2} m²`);
-  if (p.price != null) parts.push(`${Math.round(p.price).toLocaleString("pl-PL")} zł`);
-  return parts.length ? parts.join(" · ") : t("otodomOffer");
-}
-
 function renderOtodomPins(pins) {
   otodomLayer.clearLayers();
   for (const p of pins) {
     const price = p.price != null ? `${Math.round(p.price).toLocaleString("pl-PL")} zł` : "—";
     const area = p.areaM2 != null ? `${p.areaM2} m²` : "";
     const rooms = p.rooms ? `${p.rooms} ${t("otodomRoomsShort")}` : "";
-    const mode = (p.transaction || "").toUpperCase() === "RENT" ? "Rent" : "Buy";
     const m = L.circleMarker([p.lat, p.lon], {
       radius: 7,
       color: "#c45c26",
@@ -352,25 +343,7 @@ function renderOtodomPins(pins) {
     });
     const wrap = document.createElement("div");
     wrap.className = "otodom-popup";
-    wrap.innerHTML = `<strong>${escapeHtml([price, area, rooms].filter(Boolean).join(" · ") || t("otodomOffer"))}</strong><br>
-      <small>${t("otodomApprox")}</small>`;
-    const saveBtn = document.createElement("button");
-    saveBtn.type = "button";
-    saveBtn.className = "btn primary";
-    saveBtn.textContent = t("otodomSave");
-    saveBtn.onclick = () => {
-      openOfferDialog({
-        title: otodomOfferLabel(p),
-        lat: p.lat,
-        lon: p.lon,
-        cityId: ctx.getActiveCityId?.() || null,
-        url: "",
-        mode,
-        price: p.price ?? null,
-        sqm: p.areaM2 ?? null,
-      });
-    };
-    wrap.appendChild(saveBtn);
+    wrap.innerHTML = `<strong>${escapeHtml([price, area, rooms].filter(Boolean).join(" · ") || t("otodomOffer"))}</strong>`;
     m.bindPopup(wrap);
     otodomLayer.addLayer(m);
   }
