@@ -30,7 +30,7 @@ public static class AuthEndpoints
             };
             db.Users.Add(user);
             await db.SaveChangesAsync();
-            return Results.Ok(new { token = PasswordAuth.IssueToken(config, user.UserId) });
+            return Results.Ok(new { token = PasswordAuth.IssueToken(config, user.UserId, email) });
         });
 
         app.MapPost("/api/auth/login", async (AuthBody body, AppDbContext db, IConfiguration config) =>
@@ -43,7 +43,7 @@ public static class AuthEndpoints
             if (user is null || !PasswordAuth.VerifyPassword(body.Password, user.PasswordHash))
                 return Results.Json(new { error = "Invalid email or password." }, statusCode: 401);
 
-            return Results.Ok(new { token = PasswordAuth.IssueToken(config, user.UserId) });
+            return Results.Ok(new { token = PasswordAuth.IssueToken(config, user.UserId, email) });
         });
 
         app.MapPost("/api/auth/google", async (GoogleAuthBody body, IHttpClientFactory http, IConfiguration config) =>
@@ -62,11 +62,12 @@ public static class AuthEndpoints
             var aud = info.TryGetProperty("aud", out var audEl) ? audEl.GetString() : null;
             var iss = info.TryGetProperty("iss", out var issEl) ? issEl.GetString() : null;
             var sub = info.TryGetProperty("sub", out var subEl) ? subEl.GetString() : null;
+            var email = info.TryGetProperty("email", out var emailEl) ? emailEl.GetString() : null;
             var issOk = iss is "https://accounts.google.com" or "accounts.google.com";
             if (aud != clientId || !issOk || string.IsNullOrWhiteSpace(sub))
                 return Results.Json(new { error = "Sign-in failed or your account is not allowed." }, statusCode: 401);
 
-            return Results.Ok(new { token = PasswordAuth.IssueToken(config, sub) });
+            return Results.Ok(new { token = PasswordAuth.IssueToken(config, sub, email) });
         });
     }
 

@@ -31,6 +31,7 @@ services:
       Nominatim__UserAgent: CityChecker/1.0 (personal; ${CONTACT_EMAIL:-dev@example.com})
       Import__LodzDistrictsCsvPath: /app/DataImports/Granice osiedli.csv
       Import__LodzDistrictsPolygonsPath: /app/DataImports/lodz-osiedla-polygons.json
+      Offers__AllowedEmails: ${OFFERS_ALLOWED_EMAILS:-}
     volumes:
       - ./DataImports:/app/DataImports:ro
     depends_on:

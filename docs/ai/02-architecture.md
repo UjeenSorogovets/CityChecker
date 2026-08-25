@@ -50,6 +50,8 @@
 | `OtodomPinSets`, `OtodomPins` | Shared Otodom overlay cache (filter-keyed; Refresh scrapes) |
 | `districts_import_raw` | Transient Łódź CSV staging |
 
+**Offers access:** `Offers:AllowedEmails` (comma-separated, case-insensitive). Empty = deny all. Checked on `/api/housing/offers*`, `/api/housing/otodom/*`. JWT may carry `email` claim (login/register/Google); password users also resolved via `Users` table.
+
 ## API map
 
 | Area | File | Routes |

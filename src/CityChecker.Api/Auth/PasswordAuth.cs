@@ -45,16 +45,22 @@ public static class PasswordAuth
     }
 
     public static string IssueToken(IConfiguration config, Guid userId, TimeSpan? lifetime = null) =>
-        IssueToken(config, userId.ToString("D"), lifetime);
+        IssueToken(config, userId.ToString("D"), null, lifetime);
 
-    public static string IssueToken(IConfiguration config, string userId, TimeSpan? lifetime = null)
+    public static string IssueToken(IConfiguration config, Guid userId, string? email, TimeSpan? lifetime = null) =>
+        IssueToken(config, userId.ToString("D"), email, lifetime);
+
+    public static string IssueToken(IConfiguration config, string userId, string? email = null, TimeSpan? lifetime = null)
     {
         var key = new SymmetricSecurityKey(SigningKeyBytes(config));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var claims = new List<Claim> { new("sub", userId) };
+        if (!string.IsNullOrWhiteSpace(email))
+            claims.Add(new Claim("email", NormalizeEmail(email)));
         var token = new JwtSecurityToken(
             issuer: Issuer,
             audience: Issuer,
-            claims: [new Claim("sub", userId)],
+            claims: claims,
             expires: DateTime.UtcNow.Add(lifetime ?? TimeSpan.FromDays(30)),
             signingCredentials: creds);
         return new JwtSecurityTokenHandler().WriteToken(token);

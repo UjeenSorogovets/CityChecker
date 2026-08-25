@@ -13,11 +13,27 @@ const OTODOM_DEFAULTS = { priceMax: 650000, areaMin: 50, rooms: ["TWO", "THREE",
 let otodomEnabled = false;
 let otodomTimer = null;
 let otodomGen = 0;
+let offersAllowed = false;
 
 export function initHousing(options) {
   ctx = options;
   offerLayer = L.layerGroup().addTo(ctx.map);
   otodomLayer = L.layerGroup().addTo(ctx.map);
+  void setupOffersAccess();
+}
+
+async function setupOffersAccess() {
+  try {
+    const access = await api("/api/housing/offers-access");
+    offersAllowed = !!access?.allowed;
+  } catch {
+    offersAllowed = false;
+  }
+  if (!offersAllowed) {
+    document.getElementById("offers-toggle")?.classList.add("hidden");
+    document.getElementById("offers-panel")?.classList.add("hidden");
+    return;
+  }
   wireUi();
   refreshOffers();
 }
@@ -273,7 +289,7 @@ function formatOtodomStatus(res) {
 }
 
 async function reloadOtodomPins(opts = {}) {
-  if (!otodomEnabled || !ctx?.map || !otodomLayer) return;
+  if (!offersAllowed || !otodomEnabled || !ctx?.map || !otodomLayer) return;
   const cityId = ctx.getActiveCityId?.();
   if (!cityId) {
     setOtodomStatus(t("otodomNeedCity"));

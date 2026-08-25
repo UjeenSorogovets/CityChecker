@@ -40,6 +40,7 @@
 - Toggle reads DB; **Update offers** scrapes (cap ~720 ads, 1–3 min cold); concurrent refreshes single-flight  
 - Failed refresh returns `ok: false`, `status: "Failed"`, and a plain-language `error` (e.g. HTTP 403 anti-bot on VPS) — not `ok: true` with a cryptic status code only  
 - Wrocław Otodom path `dolnoslaskie/wroclaw/wroclaw/wroclaw` is valid; **403 from prod** is usually Otodom blocking the datacenter IP, not a bad city slug  
+- **Offers allowlist:** set `Offers__AllowedEmails` / `OFFERS_ALLOWED_EMAILS` (comma-separated). Empty list = nobody sees Offers/Otodom. Google users need re-login after deploy to get `email` in JWT  
 - Stale-on-error: failed Refresh keeps previous pins and sets `Failed`  
 - Excluded from backups (regenerable) — Refresh after restore  
 - Pin locations are often **approximate** (Otodom map radius)  

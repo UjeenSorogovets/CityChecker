@@ -210,14 +210,22 @@ public static class HousingEndpoints
         });
 
         // --- Otodom map pins (shared DB cache; Refresh scrapes Otodom) ---
+        g.MapGet("/offers-access", async (ClaimsPrincipal user, AppDbContext db, IConfiguration config) =>
+        {
+            if (user.GetUserId() is null) return Results.Unauthorized();
+            var email = await user.ResolveUserEmailAsync(db);
+            return Results.Ok(new { allowed = OffersAccess.IsAllowed(config, email) });
+        });
+
         g.MapPost("/otodom/pins", async (
             OtodomPinsRequest body,
             ClaimsPrincipal user,
+            AppDbContext db,
+            IConfiguration config,
             OtodomMapService otodom,
             CancellationToken ct) =>
         {
-            var uid = user.GetUserId();
-            if (uid is null) return Results.Unauthorized();
+            if (await user.EnsureOffersAccessAsync(db, config) is { } denied) return denied;
             if (body.East <= body.West || body.North <= body.South)
                 return Results.BadRequest(new { error = "Invalid bbox." });
             if (body.CityId is null)
@@ -230,11 +238,12 @@ public static class HousingEndpoints
         g.MapPost("/otodom/pins/refresh", async (
             OtodomPinsRequest body,
             ClaimsPrincipal user,
+            AppDbContext db,
+            IConfiguration config,
             OtodomMapService otodom,
             CancellationToken ct) =>
         {
-            var uid = user.GetUserId();
-            if (uid is null) return Results.Unauthorized();
+            if (await user.EnsureOffersAccessAsync(db, config) is { } denied) return denied;
             if (body.East <= body.West || body.North <= body.South)
                 return Results.BadRequest(new { error = "Invalid bbox." });
             if (body.CityId is null)
@@ -245,8 +254,9 @@ public static class HousingEndpoints
         });
 
         // --- Offers ---
-        g.MapGet("/offers", async (bool? finalistsOnly, ClaimsPrincipal user, AppDbContext db) =>
+        g.MapGet("/offers", async (bool? finalistsOnly, ClaimsPrincipal user, AppDbContext db, IConfiguration config) =>
         {
+            if (await user.EnsureOffersAccessAsync(db, config) is { } denied) return denied;
             var uid = user.GetUserId();
             if (uid is null) return Results.Unauthorized();
             var q = db.HousingOffers.AsNoTracking().Where(o => o.UserId == uid);
@@ -256,8 +266,9 @@ public static class HousingEndpoints
             return Results.Ok(list.Select(ToOfferDto));
         });
 
-        g.MapPost("/offers", async (OfferWriteDto body, ClaimsPrincipal user, AppDbContext db) =>
+        g.MapPost("/offers", async (OfferWriteDto body, ClaimsPrincipal user, AppDbContext db, IConfiguration config) =>
         {
+            if (await user.EnsureOffersAccessAsync(db, config) is { } denied) return denied;
             var uid = user.GetUserId();
             if (uid is null) return Results.Unauthorized();
             if (string.IsNullOrWhiteSpace(body.Title)) return Results.BadRequest(new { error = "Title required." });
@@ -269,8 +280,9 @@ public static class HousingEndpoints
             return Results.Created($"/api/housing/offers/{o.OfferId}", ToOfferDto(o));
         });
 
-        g.MapPut("/offers/{id:guid}", async (Guid id, OfferWriteDto body, ClaimsPrincipal user, AppDbContext db) =>
+        g.MapPut("/offers/{id:guid}", async (Guid id, OfferWriteDto body, ClaimsPrincipal user, AppDbContext db, IConfiguration config) =>
         {
+            if (await user.EnsureOffersAccessAsync(db, config) is { } denied) return denied;
             var uid = user.GetUserId();
             if (uid is null) return Results.Unauthorized();
             var o = await db.HousingOffers.FirstOrDefaultAsync(x => x.OfferId == id && x.UserId == uid);
@@ -281,8 +293,9 @@ public static class HousingEndpoints
             return Results.Ok(ToOfferDto(o));
         });
 
-        g.MapDelete("/offers/{id:guid}", async (Guid id, ClaimsPrincipal user, AppDbContext db) =>
+        g.MapDelete("/offers/{id:guid}", async (Guid id, ClaimsPrincipal user, AppDbContext db, IConfiguration config) =>
         {
+            if (await user.EnsureOffersAccessAsync(db, config) is { } denied) return denied;
             var uid = user.GetUserId();
             if (uid is null) return Results.Unauthorized();
             var o = await db.HousingOffers.FirstOrDefaultAsync(x => x.OfferId == id && x.UserId == uid);
