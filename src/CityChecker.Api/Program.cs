@@ -166,10 +166,12 @@ using (var scope = app.Services.CreateScope())
             SeedData.WarszawaId, "DataImports/warszawa-districts-polygons.json", "OSM Warszawa dzielnice");
         await polyImporter.ImportForCityAsync(
             SeedData.WroclawId, "DataImports/wroclaw-districts-polygons.json", "OSM Wrocław osiedla");
+        await polyImporter.ImportForCityAsync(
+            SeedData.GdanskId, "DataImports/gdansk-districts-polygons.json", "OSM Gdańsk dzielnice");
     }
     catch (Exception ex)
     {
-        app.Logger.LogWarning(ex, "Auto-import of Kraków/Warszawa/Wrocław districts skipped");
+        app.Logger.LogWarning(ex, "Auto-import of Kraków/Warszawa/Wrocław/Gdańsk districts skipped");
     }
 }
 

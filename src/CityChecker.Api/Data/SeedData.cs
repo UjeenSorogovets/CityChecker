@@ -9,6 +9,7 @@ public static class SeedData
     public static readonly Guid KrakowId = Guid.Parse("22222222-2222-2222-2222-222222222222");
     public static readonly Guid WarszawaId = Guid.Parse("33333333-3333-3333-3333-333333333333");
     public static readonly Guid WroclawId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+    public static readonly Guid GdanskId = Guid.Parse("55555555-5555-5555-5555-555555555555");
 
     static readonly City[] SeededCities =
     [
@@ -47,6 +48,15 @@ public static class SeedData
             CenterLat = 51.1079,
             CenterLon = 17.0385,
             OfficialCode = "0264"
+        },
+        new City
+        {
+            CityId = GdanskId,
+            Name = "Gdańsk",
+            Voivodeship = "Pomorskie",
+            CenterLat = 54.3520,
+            CenterLon = 18.6466,
+            OfficialCode = "2261"
         }
     ];
 

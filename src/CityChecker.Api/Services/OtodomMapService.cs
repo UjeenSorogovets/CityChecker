@@ -36,6 +36,7 @@ public class OtodomMapService(
         [SeedData.KrakowId] = "malopolskie/krakow/krakow/krakow",
         [SeedData.WarszawaId] = "mazowieckie/warszawa/warszawa/warszawa",
         [SeedData.WroclawId] = "dolnoslaskie/wroclaw/wroclaw/wroclaw",
+        [SeedData.GdanskId] = "pomorskie/gdansk/gdansk/gdansk",
     };
 
     static readonly string[] DefaultRooms =
@@ -224,7 +225,7 @@ public class OtodomMapService(
 
         if (q.CityId is null || !CityPaths.TryGetValue(q.CityId.Value, out var cityPath))
         {
-            error = "Pick a seeded city (Łódź / Kraków / Warszawa / Wrocław).";
+            error = "Pick a seeded city (Łódź / Kraków / Warszawa / Wrocław / Gdańsk).";
             return false;
         }
 

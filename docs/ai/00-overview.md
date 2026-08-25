@@ -46,6 +46,7 @@ VPS path: `/opt/CityChecker`. Do **not** commit/push unless the user asks.
 | Kraków | `22222222-2222-2222-2222-222222222222` | 1261 |
 | Warszawa | `33333333-3333-3333-3333-333333333333` | 1465 |
 | Wrocław | `44444444-4444-4444-4444-444444444444` | 0264 |
+| Gdańsk | `55555555-5555-5555-5555-555555555555` | 2261 |
 
 District GUIDs are **random per import** — never stable across re-import. Backups must include `Districts` with user FK data.
 

@@ -41,10 +41,11 @@ Mounted read-only into the API container. Needed before first city import:
 | `krakow-districts-polygons.json` | Kraków (auto if empty) |
 | `warszawa-districts-polygons.json` | Warszawa (auto if empty) |
 | `wroclaw-districts-polygons.json` | Wrocław 48 osiedla (auto if empty) |
+| `gdansk-districts-polygons.json` | Gdańsk 35 dzielnice (auto if empty) |
 | `wind-rose.json` | Environment wind frequencies |
 | `lodz-pollution-sources.json` | Curated Łódź pollution points |
 
-Regenerate polygon caches: `python DataImports/_fetch_osiedla_polygons.py`, `python DataImports/_fetch_krakow_warszawa.py`, `python DataImports/_fetch_wroclaw.py`.
+Regenerate polygon caches: `python DataImports/_fetch_osiedla_polygons.py`, `python DataImports/_fetch_krakow_warszawa.py`, `python DataImports/_fetch_wroclaw.py`, `python DataImports/_fetch_gdansk.py`.
 
 ## Useful commands
 
