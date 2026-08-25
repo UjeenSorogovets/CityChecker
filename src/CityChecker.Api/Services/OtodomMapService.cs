@@ -64,7 +64,9 @@ public class OtodomMapService(
             .ToListAsync(ct);
 
         return new OtodomPinsResult(
-            true, set.Status == "Failed" ? set.LastError : null, pins,
+            set.Status != "Failed",
+            set.Status == "Failed" ? (set.LastError ?? "Otodom refresh failed.") : null,
+            pins,
             set.FetchedAt, set.TotalMatched, set.Listed, set.Status);
     }
 
@@ -277,8 +279,19 @@ public class OtodomMapService(
     {
         var m when m.Contains("buildId", StringComparison.OrdinalIgnoreCase) => m,
         var m when m.Contains("Unexpected", StringComparison.OrdinalIgnoreCase) => m,
+        var m when m.Contains("Otodom", StringComparison.OrdinalIgnoreCase) => m,
         var m when m.Contains("returned", StringComparison.OrdinalIgnoreCase) => m,
         _ => "Otodom request failed (timeout or blocked). Try again later.",
+    };
+
+    // ponytail: map raw status → actionable text (403 on VPS is usually anti-bot, not a bad city path)
+    static string DescribeSearchHttp(int code) => code switch
+    {
+        403 => "Otodom blocked this server (HTTP 403 anti-bot). Wait and retry — datacenter IPs are often blocked.",
+        429 => "Otodom rate-limited the request (HTTP 429). Wait a few minutes and retry.",
+        404 => "Otodom search URL not found (HTTP 404). City path may be wrong or Otodom changed their URLs.",
+        >= 500 and < 600 => $"Otodom is temporarily unavailable (HTTP {code}). Retry later.",
+        _ => $"Otodom search failed (HTTP {code}).",
     };
 
     static string Truncate(string? s, int max)
@@ -313,7 +326,7 @@ public class OtodomMapService(
             {
                 log.LogWarning("Otodom list page {Page} {Status}", page, listRes.StatusCode);
                 if (page == 1)
-                    throw new InvalidOperationException($"Otodom search returned {(int)listRes.StatusCode}.");
+                    throw new InvalidOperationException(DescribeSearchHttp((int)listRes.StatusCode));
                 break;
             }
 
@@ -530,6 +543,9 @@ public class OtodomMapService(
             || !builtPath.Contains("lodzkie/lodz", StringComparison.Ordinal)
             || key.RoomsKey.Length == 0)
             throw new InvalidOperationException("OtodomMapService.SelfCheck: filter key failed");
+
+        if (!DescribeSearchHttp(403).Contains("403", StringComparison.Ordinal))
+            throw new InvalidOperationException("OtodomMapService.SelfCheck: http describe failed");
     }
 
     readonly record struct FilterKey(

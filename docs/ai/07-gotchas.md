@@ -38,6 +38,8 @@
 - **SearchMapPins** GraphQL uses Apollo APQ with **client-computed** sha256 hashes — we use `_next/data/{buildId}/…` instead  
 - Shared Postgres cache: `OtodomPinSets` + `OtodomPins` keyed by city + transaction + priceMax + areaMin + rooms  
 - Toggle reads DB; **Update offers** scrapes (cap ~720 ads, 1–3 min cold); concurrent refreshes single-flight  
+- Failed refresh returns `ok: false`, `status: "Failed"`, and a plain-language `error` (e.g. HTTP 403 anti-bot on VPS) — not `ok: true` with a cryptic status code only  
+- Wrocław Otodom path `dolnoslaskie/wroclaw/wroclaw/wroclaw` is valid; **403 from prod** is usually Otodom blocking the datacenter IP, not a bad city slug  
 - Stale-on-error: failed Refresh keeps previous pins and sets `Failed`  
 - Excluded from backups (regenerable) — Refresh after restore  
 - Pin locations are often **approximate** (Otodom map radius)  

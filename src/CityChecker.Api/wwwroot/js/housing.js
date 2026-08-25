@@ -247,6 +247,9 @@ function otodomRequestBody(cityId, filters, bounds) {
 function formatOtodomStatus(res) {
   const status = res.status || "";
   if (status === "Missing") return t("otodomMissing");
+  if (status === "Failed" || res.ok === false) {
+    return res.error || t("otodomFailed");
+  }
 
   const n = (res.pins || []).length;
   const total = res.totalMatched;
@@ -265,7 +268,6 @@ function formatOtodomStatus(res) {
       parts.push(`${t("otodomUpdated")}: ${d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}`);
     }
   }
-  if (status === "Failed" && res.error) parts.push(res.error);
   if (status === "Refreshing") parts.push(t("otodomRefreshing"));
   return parts.join(" · ");
 }
@@ -299,11 +301,6 @@ async function reloadOtodomPins(opts = {}) {
       body: JSON.stringify(otodomRequestBody(cityId, filters, b)),
     });
     if (gen !== otodomGen) return;
-    if (!res.ok && res.status !== "Failed") {
-      otodomLayer.clearLayers();
-      setOtodomStatus(res.error || t("otodomEmpty"));
-      return;
-    }
     renderOtodomPins(res.pins || []);
     setOtodomStatus(formatOtodomStatus(res));
   } catch (e) {
