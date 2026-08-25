@@ -59,7 +59,7 @@
 | Buildings | `BuildingEndpoints.cs` | `GET /api/cities/{cityId}/buildings?bbox=…`, `POST /api/buildings/reverse-geocode` |
 | Notes | `NoteEndpoints.cs` | `GET/POST/PUT/DELETE /api/notes` (+ filters) |
 | Aggregates | `AggregateEndpoints.cs` | `/api/aggregates/city|district|building/{id}`, **`GET /api/cities/{cityId}/aggregates`** (batch) |
-| Housing | `HousingEndpoints.cs` | `/api/housing/*` — anchors, commute, picks, probe, visits, offers, profile, compare, finalists, `export.csv` |
+| Housing | `HousingEndpoints.cs` | `/api/housing/*` — anchors, commute, picks, probe, visits, offers, **`POST /otodom/pins`**, profile, compare, finalists, `export.csv` |
 | Admin | `AdminEndpoints.cs` | `POST /api/admin/import/lodz-districts`, `POST /api/admin/refresh-environment/{cityId}` |
 
 ## Services
@@ -71,6 +71,7 @@
 | `LodzDistrictImportService` | Scoped | CSV + polygons → `Districts` |
 | `PolygonDistrictImportService` | Scoped | KR/WA GeoJSON → `Districts` |
 | `EnvironmentService` | `AddHttpClient<>` (scoped) | Overpass + wind + curated JSON → env cache |
+| `OtodomMapService` | `AddHttpClient<>` + memory cache | City + filters → paginated wyniki + detail coords → map pins |
 | `HousingGeoService` | HttpClient | OSRM commute + Overpass amenity probe |
 | `NominatimClient` | HttpClient | Reverse geocode |
 

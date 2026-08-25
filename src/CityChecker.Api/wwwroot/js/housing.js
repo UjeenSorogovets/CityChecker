@@ -5,6 +5,8 @@ import { t } from "./i18n.js";
 let anchorLayer = null;
 /** @type {L.LayerGroup | null} */
 let offerLayer = null;
+/** @type {L.LayerGroup | null} */
+let otodomLayer = null;
 /** @type {{ map: L.Map, getActiveCityId: () => string|null, getContext: () => any, onPlaceClickForAnchor?: boolean }} */
 let ctx = null;
 
@@ -16,10 +18,17 @@ let filterState = {
   hasOffers: false,
 };
 
+const OTODOM_FILTERS_KEY = "cc_otodom_filters";
+const OTODOM_DEFAULTS = { priceMax: 650000, areaMin: 50, rooms: ["TWO", "THREE", "FOUR", "FIVE", "SIX_OR_MORE"] };
+let otodomEnabled = false;
+let otodomTimer = null;
+let otodomGen = 0;
+
 export function initHousing(options) {
   ctx = options;
   anchorLayer = L.layerGroup().addTo(ctx.map);
   offerLayer = L.layerGroup().addTo(ctx.map);
+  otodomLayer = L.layerGroup().addTo(ctx.map);
   wireUi();
   refreshAnchors();
   refreshOffers();
@@ -140,6 +149,33 @@ function wireUi() {
   document.getElementById("housing-export")?.addEventListener("click", exportCsv);
   document.getElementById("housing-save-weights")?.addEventListener("click", saveProfile);
   document.getElementById("housing-add-offer")?.addEventListener("click", () => openOfferDialog({}));
+
+  const otodomShow = document.getElementById("otodom-show");
+  loadOtodomFiltersIntoUi();
+  for (const id of ["otodom-price-max", "otodom-area-min"]) {
+    document.getElementById(id)?.addEventListener("change", () => {
+      persistOtodomFilters();
+      if (otodomEnabled) scheduleOtodomReload();
+    });
+  }
+  document.querySelectorAll('input[name="otodom-room"]').forEach((el) => {
+    el.addEventListener("change", () => {
+      persistOtodomFilters();
+      if (otodomEnabled) scheduleOtodomReload();
+    });
+  });
+  otodomShow?.addEventListener("change", (e) => {
+    otodomEnabled = !!e.target.checked;
+    if (!otodomEnabled) {
+      otodomLayer?.clearLayers();
+      setOtodomStatus(t("otodomHint"));
+      return;
+    }
+    scheduleOtodomReload(true);
+  });
+  ctx.map.on("moveend", () => {
+    if (otodomEnabled) scheduleOtodomReload();
+  });
 
   document.getElementById("filter-shortlist")?.addEventListener("change", async (e) => {
     filterState.shortlistOnly = e.target.checked;
@@ -273,10 +309,11 @@ export function openOfferAt({ lat, lon, cityId, districtId, buildingId, title })
 function openOfferDialog(seed = {}) {
   const title = prompt(t("offerTitle"), seed.title || "");
   if (!title) return;
-  const url = prompt(t("offerUrl"), "") || null;
-  const mode = (prompt(t("offerMode"), "Rent") || "Rent").toLowerCase().startsWith("b") ? "Buy" : "Rent";
-  const price = numPrompt(t("offerPrice"), null);
-  const sqm = numPrompt(t("offerSqm"), null);
+  const url = prompt(t("offerUrl"), seed.url || "") || null;
+  const modeDefault = seed.mode === "Buy" ? "Buy" : seed.mode === "Rent" ? "Rent" : "Rent";
+  const mode = (prompt(t("offerMode"), modeDefault) || modeDefault).toLowerCase().startsWith("b") ? "Buy" : "Rent";
+  const price = numPrompt(t("offerPrice"), seed.price ?? null);
+  const sqm = numPrompt(t("offerSqm"), seed.sqm ?? null);
   const rent = numPrompt(t("offerMonthly"), null);
   const media = numPrompt(t("offerMedia"), null);
   const czynsz = numPrompt(t("offerCzynsz"), null);
@@ -434,6 +471,163 @@ async function exportCsv() {
   a.href = URL.createObjectURL(blob);
   a.download = "citychecker-export.csv";
   a.click();
+}
+
+function setOtodomStatus(text) {
+  const el = document.getElementById("otodom-status");
+  if (el) el.textContent = text;
+}
+
+function readOtodomFilters() {
+  let stored = null;
+  try {
+    stored = JSON.parse(localStorage.getItem(OTODOM_FILTERS_KEY) || "null");
+  } catch {
+    stored = null;
+  }
+  const priceMax = Number(document.getElementById("otodom-price-max")?.value);
+  const areaMin = Number(document.getElementById("otodom-area-min")?.value);
+  const rooms = [...document.querySelectorAll('input[name="otodom-room"]:checked')].map((el) => el.value);
+  return {
+    priceMax: Number.isFinite(priceMax) && priceMax > 0 ? priceMax : (stored?.priceMax ?? OTODOM_DEFAULTS.priceMax),
+    areaMin: Number.isFinite(areaMin) && areaMin >= 0 ? areaMin : (stored?.areaMin ?? OTODOM_DEFAULTS.areaMin),
+    rooms: rooms.length ? rooms : (stored?.rooms?.length ? stored.rooms : OTODOM_DEFAULTS.rooms),
+  };
+}
+
+function loadOtodomFiltersIntoUi() {
+  let f = OTODOM_DEFAULTS;
+  try {
+    const stored = JSON.parse(localStorage.getItem(OTODOM_FILTERS_KEY) || "null");
+    if (stored) f = { ...OTODOM_DEFAULTS, ...stored };
+  } catch { /* keep defaults */ }
+  const priceEl = document.getElementById("otodom-price-max");
+  const areaEl = document.getElementById("otodom-area-min");
+  if (priceEl) priceEl.value = String(f.priceMax ?? OTODOM_DEFAULTS.priceMax);
+  if (areaEl) areaEl.value = String(f.areaMin ?? OTODOM_DEFAULTS.areaMin);
+  const roomSet = new Set(f.rooms?.length ? f.rooms : OTODOM_DEFAULTS.rooms);
+  document.querySelectorAll('input[name="otodom-room"]').forEach((el) => {
+    el.checked = roomSet.has(el.value);
+  });
+}
+
+function persistOtodomFilters() {
+  localStorage.setItem(OTODOM_FILTERS_KEY, JSON.stringify(readOtodomFilters()));
+}
+
+function scheduleOtodomReload(immediate = false) {
+  clearTimeout(otodomTimer);
+  otodomTimer = setTimeout(() => reloadOtodomPins(), immediate ? 0 : 450);
+}
+
+async function reloadOtodomPins() {
+  if (!otodomEnabled || !ctx?.map || !otodomLayer) return;
+  const cityId = ctx.getActiveCityId?.();
+  if (!cityId) {
+    setOtodomStatus(t("otodomNeedCity"));
+    otodomLayer.clearLayers();
+    return;
+  }
+  const filters = readOtodomFilters();
+  persistOtodomFilters();
+  if (!filters.rooms.length) {
+    setOtodomStatus(t("otodomNeedRooms"));
+    otodomLayer.clearLayers();
+    return;
+  }
+
+  const b = ctx.map.getBounds();
+  const gen = ++otodomGen;
+  setOtodomStatus(t("otodomLoading"));
+  try {
+    const res = await api("/api/housing/otodom/pins", {
+      method: "POST",
+      body: JSON.stringify({
+        cityId,
+        priceMax: filters.priceMax,
+        areaMin: filters.areaMin,
+        rooms: filters.rooms,
+        transaction: "SELL",
+        west: b.getWest(),
+        south: b.getSouth(),
+        east: b.getEast(),
+        north: b.getNorth(),
+      }),
+    });
+    if (gen !== otodomGen) return;
+    if (!res.ok) {
+      otodomLayer.clearLayers();
+      setOtodomStatus(res.error || t("otodomEmpty"));
+      return;
+    }
+    renderOtodomPins(res.pins || []);
+    const n = (res.pins || []).length;
+    const total = res.totalMatched;
+    const listed = res.listed;
+    if (!n) {
+      setOtodomStatus(t("otodomEmpty"));
+    } else if (total != null) {
+      setOtodomStatus(`${t("otodomLoaded")}: ${n} · ${t("otodomMatched")}: ${total}${listed != null && listed < total ? ` (${t("otodomListed")}: ${listed})` : ""}`);
+    } else {
+      setOtodomStatus(`${t("otodomLoaded")}: ${n}`);
+    }
+  } catch (e) {
+    if (gen !== otodomGen) return;
+    otodomLayer.clearLayers();
+    setOtodomStatus(e.message || t("otodomEmpty"));
+  }
+}
+
+function renderOtodomPins(pins) {
+  otodomLayer.clearLayers();
+  for (const p of pins) {
+    const price = p.price != null ? `${Math.round(p.price).toLocaleString("pl-PL")} zł` : "—";
+    const area = p.areaM2 != null ? `${p.areaM2} m²` : "";
+    const rooms = p.rooms || "";
+    const mode = (p.transaction || "").toUpperCase() === "RENT" ? "Rent" : "Buy";
+    const m = L.circleMarker([p.lat, p.lon], {
+      radius: 7,
+      color: "#c45c26",
+      fillColor: "#e67e22",
+      fillOpacity: 0.85,
+      weight: 2,
+    });
+    const wrap = document.createElement("div");
+    wrap.className = "otodom-popup";
+    wrap.innerHTML = `<strong>${escapeHtml(p.title || "")}</strong><br>
+      <small>${price}${area ? ` · ${area}` : ""}${rooms ? ` · ${rooms}` : ""} · ${t("otodomApprox")}</small><br>
+      <a href="${escapeAttr(p.url)}" target="_blank" rel="noopener noreferrer">${t("otodomOpen")}</a><br>`;
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "btn primary";
+    saveBtn.textContent = t("otodomSave");
+    saveBtn.onclick = () => {
+      openOfferDialog({
+        title: p.title,
+        lat: p.lat,
+        lon: p.lon,
+        cityId: ctx.getActiveCityId?.() || null,
+        url: p.url || "",
+        mode,
+        price: p.price ?? null,
+        sqm: p.areaM2 ?? null,
+      });
+    };
+    wrap.appendChild(saveBtn);
+    m.bindPopup(wrap);
+    m.bindTooltip(price, { direction: "top" });
+    otodomLayer.addLayer(m);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function escapeAttr(s) {
+  return escapeHtml(s).replace(/`/g, "&#96;");
 }
 
 function numPrompt(label, fallback) {

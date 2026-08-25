@@ -209,6 +209,36 @@ public static class HousingEndpoints
                 new VisitDto(v.VisitId, v.DistrictId, v.VisitedAt, v.EveningFeel, v.Daylight, v.DogWalk, v.SaturdayLife, v.WinterFeel, v.Notes));
         });
 
+        // --- Otodom map pins (transient overlay; personal-use Next.js data proxy) ---
+        g.MapPost("/otodom/pins", async (
+            OtodomPinsRequest body,
+            ClaimsPrincipal user,
+            OtodomMapService otodom,
+            CancellationToken ct) =>
+        {
+            var uid = user.GetUserId();
+            if (uid is null) return Results.Unauthorized();
+            if (body.East <= body.West || body.North <= body.South)
+                return Results.BadRequest(new { error = "Invalid bbox." });
+            if (body.CityId is null && string.IsNullOrWhiteSpace(body.SearchUrl))
+                return Results.BadRequest(new { error = "cityId or searchUrl required." });
+
+            var result = await otodom.GetPinsAsync(
+                new OtodomPinsQuery(
+                    body.CityId,
+                    body.PriceMax,
+                    body.AreaMin,
+                    body.Rooms,
+                    body.Transaction,
+                    body.West,
+                    body.South,
+                    body.East,
+                    body.North,
+                    body.SearchUrl),
+                ct);
+            return Results.Ok(result);
+        });
+
         // --- Offers ---
         g.MapGet("/offers", async (bool? finalistsOnly, ClaimsPrincipal user, AppDbContext db) =>
         {
@@ -504,6 +534,17 @@ public static class HousingEndpoints
 }
 
 public record AnchorDto(Guid AnchorId, string Label, double Lat, double Lon, int SortOrder);
+public record OtodomPinsRequest(
+    Guid? CityId,
+    double? PriceMax,
+    double? AreaMin,
+    string[]? Rooms,
+    string? Transaction,
+    double West,
+    double South,
+    double East,
+    double North,
+    string? SearchUrl = null);
 public record AnchorWriteDto(string Label, double Lat, double Lon, int? SortOrder);
 public record CommuteLegDto(Guid AnchorId, string Label, double? DriveMinutes, double? DriveKm);
 public record DistrictCommuteDto(Guid DistrictId, string Name, double Lat, double Lon, IReadOnlyList<CommuteLegDto> Legs, double? WorstDriveMinutes);

@@ -54,6 +54,18 @@ builder.Services.AddHttpClient<EnvironmentService>(c =>
 {
     c.Timeout = TimeSpan.FromSeconds(90);
 });
+builder.Services.AddHttpClient<OtodomMapService>(c =>
+{
+    // multi-page list + per-listing coords can take a few minutes on cold cache
+    c.Timeout = TimeSpan.FromMinutes(4);
+    c.DefaultRequestHeaders.TryAddWithoutValidation(
+        "User-Agent",
+        "Mozilla/5.0 (compatible; CityChecker/1.0; personal)");
+    c.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json,text/html");
+    c.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Language", "pl-PL,pl;q=0.9,en;q=0.8");
+    c.DefaultRequestHeaders.TryAddWithoutValidation("Referer", "https://www.otodom.pl/");
+});
+builder.Services.AddMemoryCache();
 builder.Services.AddScoped<BuildingService>();
 builder.Services.AddScoped<AggregateService>();
 builder.Services.AddScoped<LodzDistrictImportService>();
@@ -119,6 +131,7 @@ if (app.Environment.IsDevelopment())
 {
     GeoHelper.SelfCheck();
     PasswordAuth.SelfCheck();
+    OtodomMapService.SelfCheck();
 }
 
 using (var scope = app.Services.CreateScope())

@@ -32,6 +32,16 @@
 - After JS fixes: hard-refresh or bump `app.js?v=` in `index.html`  
 - Empty env UI often means JS error mid-load (check console for `bringToFront` or aborted fetch)  
 
+## Otodom overlay
+
+- **No official API** — personal-use proxy only; may break if Otodom changes Next.js paths / blocks bots  
+- **SearchMapPins** GraphQL uses Apollo APQ with **client-computed** sha256 hashes — we use `_next/data/{buildId}/…` instead  
+- Request: `cityId` + filters (or optional `searchUrl`) + bbox; seeded city paths hardcoded  
+- **Pagination** up to ~720 ads; cold load can take 1–3 min (detail coords per listing); then cache ~5 min and pan only refilters  
+- **buildId** scraped from Otodom HTML and cached ~6h; if pins fail, wait or clear API memory cache  
+- Pin locations are often **approximate** (Otodom map radius)  
+- Do not republish Otodom data; open official listing URLs in a new tab  
+
 ## Data / imports
 
 - **District re-import orphans FKs** — restore DB dump, not GeoJSON alone  

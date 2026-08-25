@@ -729,6 +729,60 @@ body.place-note-dragging .leaflet-container { pointer-events: none; }
 }
 .housing-tabs .auth-tab { font-size: 0.75rem; padding: 0.3rem 0.45rem; }
 .housing-list { list-style: none; padding: 0; margin: 0.5rem 0 0; display: grid; gap: 0.4rem; }
+.otodom-box {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--border, #d5dde3);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.45rem;
+}
+.otodom-filters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+.otodom-filters label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+.otodom-filters input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.35rem 0.45rem;
+}
+.otodom-rooms {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.65rem;
+  font-size: 0.85rem;
+}
+.otodom-rooms legend {
+  padding: 0;
+  width: 100%;
+  font-size: 0.85rem;
+  margin-bottom: 0.15rem;
+}
+.otodom-rooms label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.otodom-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+.otodom-status { margin: 0; font-size: 0.8rem; }
+.otodom-popup { font-size: 0.9rem; line-height: 1.35; max-width: 220px; }
+.otodom-popup a { color: #0d6e6e; }
+.otodom-popup .btn { margin-top: 0.35rem; }
 .housing-list li {
   display: flex;
   align-items: center;
