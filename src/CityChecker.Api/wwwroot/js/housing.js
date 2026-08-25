@@ -352,7 +352,6 @@ function renderOtodomPins(pins) {
     };
     wrap.appendChild(saveBtn);
     m.bindPopup(wrap);
-    m.bindTooltip(price, { direction: "top" });
     otodomLayer.addLayer(m);
   }
 }
