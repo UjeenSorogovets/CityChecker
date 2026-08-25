@@ -61,7 +61,7 @@ public class OtodomMapService(
                         && p.Lon >= q.West && p.Lon <= q.East)
             .OrderBy(p => p.ExternalId)
             .Select(p => new OtodomPinDto(
-                p.ExternalId, p.Slug, p.Title, p.Lat, p.Lon, p.Price, p.AreaM2, p.Rooms, tx, p.Url))
+                p.ExternalId, p.Lat, p.Lon, p.Price, p.AreaM2, p.Rooms, tx))
             .ToListAsync(ct);
 
         return new OtodomPinsResult(
@@ -154,14 +154,14 @@ public class OtodomMapService(
                     PinId = Guid.NewGuid(),
                     PinSetId = set.PinSetId,
                     ExternalId = p.Id,
-                    Slug = Truncate(p.Slug, 400),
-                    Title = Truncate(p.Title, 500),
+                    Slug = OtodomPinAnonymizer.PlaceholderSlug(p.Id),
+                    Title = OtodomPinAnonymizer.GenericTitle,
                     Lat = p.Lat,
                     Lon = p.Lon,
                     Price = p.Price,
                     AreaM2 = p.AreaM2,
-                    Rooms = string.IsNullOrEmpty(p.Rooms) ? null : Truncate(p.Rooms, 64),
-                    Url = Truncate(p.Url, 1000),
+                    Rooms = OtodomPinAnonymizer.FormatRooms(p.Rooms),
+                    Url = "",
                 });
             }
 
@@ -391,17 +391,8 @@ public class OtodomMapService(
                 var coords = await GetListingCoordinatesAsync(buildId, ad.Slug, ct);
                 if (coords is null) return;
                 var (lat, lon) = coords.Value;
-                bag[index] = new OtodomPinDto(
-                    ad.Id,
-                    ad.Slug,
-                    ad.Title,
-                    lat,
-                    lon,
-                    ad.Price,
-                    ad.AreaM2,
-                    ad.Rooms,
-                    ad.Transaction,
-                    $"https://www.otodom.pl/pl/oferta/{ad.Slug}");
+                bag[index] = OtodomPinAnonymizer.ToDto(
+                    ad.Id, lat, lon, ad.Price, ad.AreaM2, ad.Rooms, ad.Transaction);
             }
             finally
             {
@@ -583,15 +574,12 @@ public record OtodomPinsQuery(
 
 public record OtodomPinDto(
     long Id,
-    string Slug,
-    string Title,
     double Lat,
     double Lon,
     double? Price,
     double? AreaM2,
     string? Rooms,
-    string? Transaction,
-    string Url);
+    string? Transaction);
 
 public record OtodomPinsResult(
     bool Ok,

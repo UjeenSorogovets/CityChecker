@@ -132,6 +132,7 @@ if (app.Environment.IsDevelopment())
     GeoHelper.SelfCheck();
     PasswordAuth.SelfCheck();
     OtodomMapService.SelfCheck();
+    OtodomPinAnonymizer.SelfCheck();
 }
 
 using (var scope = app.Services.CreateScope())

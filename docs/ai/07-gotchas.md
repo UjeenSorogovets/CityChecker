@@ -39,7 +39,7 @@
 - Shared Postgres cache: `OtodomPinSets` + `OtodomPins` keyed by city + transaction + priceMax + areaMin + rooms  
 - Toggle reads DB; **Update offers** scrapes (cap ~720 ads, 1–3 min cold); concurrent refreshes single-flight  
 - Failed refresh returns `ok: false`, `status: "Failed"`, and a plain-language `error` (e.g. HTTP 403 anti-bot on VPS) — not `ok: true` with a cryptic status code only  
-- Wrocław Otodom path `dolnoslaskie/wroclaw/wroclaw/wroclaw` is valid; **403 from prod** is usually Otodom blocking the datacenter IP, not a bad city slug  
+- Cached pins store **no real listing title/URL** — only price, m², numeric rooms (`2`, `3`, `6+`); re-scrape applies same rules. One-off backfill: `python scripts/anonymize_otodom_pins.py` (add `--prod` on VPS)  
 - **Offers allowlist:** set `Offers__AllowedEmails` / `OFFERS_ALLOWED_EMAILS` (comma-separated). Empty list = nobody sees Offers/Otodom. Google users need re-login after deploy to get `email` in JWT  
 - Stale-on-error: failed Refresh keeps previous pins and sets `Failed`  
 - Excluded from backups (regenerable) — Refresh after restore  
