@@ -3,9 +3,9 @@
 ## Startup (`Program.cs`)
 
 1. `MigrateAsync()` — all EF migrations  
-2. `SeedData.EnsureSeededAsync` — three cities with fixed GUIDs  
+2. `SeedData.EnsureSeededAsync` — upsert missing seeded cities (fixed GUIDs)  
 3. Auto-import Łódź districts if `Districts` empty for Łódź  
-4. Auto-import Kraków/Warszawa from polygon JSON if each city has zero districts  
+4. Auto-import Kraków/Warszawa/Wrocław from polygon JSON if each city has zero districts  
 
 **Development only:** `GeoHelper.SelfCheck()`, `PasswordAuth.SelfCheck()`.
 
@@ -40,7 +40,7 @@
 
 | Table | Role |
 |-------|------|
-| `Cities` | Seeded (Łódź, Kraków, Warszawa) |
+| `Cities` | Seeded (Łódź, Kraków, Warszawa, Wrocław) |
 | `Districts` | Import polygons; **IDs unstable across re-import** |
 | `Buildings` | Reverse-geocode cache / user-created |
 | `Notes` | User content; Point resolves `TargetDistrictId` via `Geom.Contains` |

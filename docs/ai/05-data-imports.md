@@ -10,12 +10,14 @@ Runtime reads **PostGIS only**. Imports are one-time / rare; startup auto-import
 | `lodz-osiedla-polygons.json` | Generate | Łódź MultiPolygon cache |
 | `krakow-districts-polygons.json` | Generate | Kraków districts |
 | `warszawa-districts-polygons.json` | Generate | Warszawa districts |
+| `wroclaw-districts-polygons.json` | Generate | Wrocław 48 osiedla |
 | `wind-rose.json` | Yes | Env wind frequencies by city GUID |
 | `lodz-pollution-sources.json` | Yes | Curated pollution points (`id`, `type`, `name`, `lat`, `lon`, `weight`, `influenceKm`, `notes`) |
 | `_fetch_osiedla_polygons.py` | Yes | Regenerate Łódź polygons from OSM |
 | `_fetch_krakow_warszawa.py` | Yes | Regenerate KR/WA polygons |
+| `_fetch_wroclaw.py` | Yes | Regenerate Wrocław osiedla polygons |
 
-Polygon JSON files may be absent on a fresh clone — run the fetch scripts before first Łódź/KR/WA import.
+Polygon JSON files may be absent on a fresh clone — run the fetch scripts before first Łódź/KR/WA/Wrocław import.
 
 Docker: `./DataImports` mounted read-only at `/app/DataImports`; also `COPY`’d into image.
 
@@ -34,9 +36,10 @@ Config paths (`ImportOptions` / compose):
 - **Startup:** auto if Łódź has zero districts (warn on failure)  
 - **Admin:** `POST /api/admin/import/lodz-districts`  
 
-## Kraków / Warszawa (`PolygonDistrictImportService`)
+## Kraków / Warszawa / Wrocław (`PolygonDistrictImportService`)
 
-- Paths in `Program.cs`: `DataImports/krakow-districts-polygons.json`, `…/warszawa-districts-polygons.json`  
+- Paths in `Program.cs`: `DataImports/krakow-districts-polygons.json`, `…/warszawa-…`, `…/wroclaw-districts-polygons.json`  
+- Kraków/Warszawa: official **dzielnice**; Wrocław: **48 osiedla** (not the obsolete 5 dzielnice)  
 - Imports only if that city has **zero** districts  
 
 ## Regenerate polygon caches
@@ -44,9 +47,10 @@ Config paths (`ImportOptions` / compose):
 ```bash
 python DataImports/_fetch_osiedla_polygons.py
 python DataImports/_fetch_krakow_warszawa.py
+python DataImports/_fetch_wroclaw.py
 ```
 
-(Edit hardcoded `OUT` paths in scripts if not on Windows.)
+(Edit hardcoded `OUT` paths in the Łódź script if not on Windows.)
 
 ## Critical for backups / migrations
 

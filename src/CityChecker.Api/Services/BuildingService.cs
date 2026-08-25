@@ -18,7 +18,7 @@ public class BuildingService(AppDbContext db, NominatimClient nominatim)
         // Always resolve city by nearest seeded center if Nominatim fails or city name missing
         var city = MatchCity(cities, geo?.CityName, lat, lon);
         if (city is null)
-            return (null, "Outside known cities (Łódź / Kraków / Warszawa area).");
+            return (null, "Outside known cities (Łódź / Kraków / Warszawa / Wrocław area).");
 
         var addressLine = !string.IsNullOrWhiteSpace(geo?.AddressLine) && geo.AddressLine != "Unknown street"
             ? geo.AddressLine.Trim()
