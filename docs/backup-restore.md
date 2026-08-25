@@ -11,6 +11,7 @@ Portable bundle for moving the app to a new server without losing districts, not
 | Cities, Districts, Users, Notes, Buildings, housing | Yes (Postgres) |
 | `DataImports/` snapshot | Yes (files) |
 | Env risk cache (`DistrictEnvironments`, `CityEnvironmentSources`) | No — recompute |
+| Otodom pin cache (`OtodomPinSets`, `OtodomPins`) | No — Refresh in Offers |
 | Import staging `districts_import_raw` | No |
 | `.env` / JWT / Google / SSH secrets | **No** — copy separately |
 

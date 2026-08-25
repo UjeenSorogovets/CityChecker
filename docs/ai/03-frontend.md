@@ -5,7 +5,7 @@ SPA: `src/CityChecker.Api/wwwroot/` — no bundler. Entry: `index.html` loads `a
 | File | Role |
 |------|------|
 | `js/app.js` | Map, auth gate, city lock, notes, sheet, FAB, Environment mode |
-| `js/housing.js` | Decide panel; `enrichDistrictSheet()`; **Otodom overlay** (`otodomLayer`) |
+| `js/housing.js` | Offers panel (Otodom overlay + saved offers); `openOfferAt` |
 | `js/api.js` | `fetch` wrapper, JWT in **sessionStorage** (`cc_id_token`), expiry check |
 | `js/i18n.js` | EN/RU; `cc_lang` in localStorage |
 | `js/voice-input.js` | Russian Web Speech API for note textarea |
@@ -48,13 +48,15 @@ District GeoJSON loads via `mapAbort`; environment load uses separate **`envLoad
 - Locate heading cone: `applyUserHeading()` subtracts `map.getBearing()` so direction stays correct when map is rotated  
 - Do not enable built-in `rotateControl` — custom button matches locate/FAB stack  
 
-## Otodom listings overlay (Decide → Offers)
+## Otodom listings overlay (topbar → Offers)
 
+- Topbar `#offers-toggle` opens `#offers-panel`  
+- Decide / Anchors / Compare / Finalists / Weights UI removed (API left in place)  
 - Filters: price max (default 650000), area min (50 m²), rooms 2–6+; city = locked map city (`localStorage` `cc_otodom_filters`)  
-- Toggle `#otodom-show` → `POST /api/housing/otodom/pins` with filters + bbox  
-- Transient orange `otodomLayer` markers (not stored); click → Open on Otodom / Save as offer  
-- Debounced on `moveend`; gen-counter ignores stale responses  
-- Backend paginates wyniki list (~720 cap), enriches coords, caches ~5 min, filters by viewport  
+- Toggle `#otodom-show` → `POST /api/housing/otodom/pins` (read shared DB cache + bbox)  
+- `#otodom-refresh` **Update offers** → `POST /api/housing/otodom/pins/refresh`  
+- Orange `otodomLayer` markers; click → Open on Otodom / Save as offer  
+- Debounced on `moveend` (read only); gen-counter ignores stale responses  
 
 ## Map modes (Comfort vs Environment)
 

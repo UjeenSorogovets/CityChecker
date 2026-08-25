@@ -20,6 +20,7 @@
 | `AddHousingDecision` | Anchors, picks, visits, offers, decision profile |
 | `PointNotesReplaceDistrict` | Point lat/lon/radius; deletes old district-level notes |
 | `AddDistrictEnvironment` | `DistrictEnvironments`, `CityEnvironmentSources` |
+| `AddOtodomPinCache` | `OtodomPinSets`, `OtodomPins` (shared Otodom overlay cache) |
 
 ## Auth
 
@@ -46,6 +47,7 @@
 | `Users` | Local accounts (`PasswordHash` PBKDF2) |
 | `MapAnchors`, `DistrictPicks`, `DistrictVisits`, `HousingOffers`, `DecisionProfiles` | Decide / housing |
 | `DistrictEnvironments`, `CityEnvironmentSources` | Environment cache (~7 days, regenerable) |
+| `OtodomPinSets`, `OtodomPins` | Shared Otodom overlay cache (filter-keyed; Refresh scrapes) |
 | `districts_import_raw` | Transient Łódź CSV staging |
 
 ## API map
@@ -59,7 +61,7 @@
 | Buildings | `BuildingEndpoints.cs` | `GET /api/cities/{cityId}/buildings?bbox=…`, `POST /api/buildings/reverse-geocode` |
 | Notes | `NoteEndpoints.cs` | `GET/POST/PUT/DELETE /api/notes` (+ filters) |
 | Aggregates | `AggregateEndpoints.cs` | `/api/aggregates/city|district|building/{id}`, **`GET /api/cities/{cityId}/aggregates`** (batch) |
-| Housing | `HousingEndpoints.cs` | `/api/housing/*` — anchors, commute, picks, probe, visits, offers, **`POST /otodom/pins`**, profile, compare, finalists, `export.csv` |
+| Housing | `HousingEndpoints.cs` | `/api/housing/*` — anchors, commute, picks, probe, visits, offers, **`POST /otodom/pins`**, **`POST /otodom/pins/refresh`**, profile, compare, finalists, `export.csv` |
 | Admin | `AdminEndpoints.cs` | `POST /api/admin/import/lodz-districts`, `POST /api/admin/refresh-environment/{cityId}` |
 
 ## Services
@@ -71,7 +73,7 @@
 | `LodzDistrictImportService` | Scoped | CSV + polygons → `Districts` |
 | `PolygonDistrictImportService` | Scoped | KR/WA GeoJSON → `Districts` |
 | `EnvironmentService` | `AddHttpClient<>` (scoped) | Overpass + wind + curated JSON → env cache |
-| `OtodomMapService` | `AddHttpClient<>` + memory cache | City + filters → paginated wyniki + detail coords → map pins |
+| `OtodomMapService` | `AddHttpClient<>` + memory cache (buildId/coords) | Shared DB pin sets; Refresh scrapes Otodom Next.js data |
 | `HousingGeoService` | HttpClient | OSRM commute + Overpass amenity probe |
 | `NominatimClient` | HttpClient | Reverse geocode |
 

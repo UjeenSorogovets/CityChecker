@@ -48,6 +48,8 @@ cat > "${STAGE}/MANIFEST.json" <<EOF
   "excludedTables": [
     "DistrictEnvironments",
     "CityEnvironmentSources",
+    "OtodomPinSets",
+    "OtodomPins",
     "districts_import_raw"
   ],
   "secretsChecklist": [
@@ -58,7 +60,7 @@ cat > "${STAGE}/MANIFEST.json" <<EOF
     "DOMAIN",
     "APP_PUBLIC_BASE_URL"
   ],
-  "notes": "Copy .env separately. Env risk cache is omitted — refresh via POST /api/admin/refresh-environment/{cityId} or open Environment mode."
+  "notes": "Copy .env separately. Env risk and Otodom pin caches are omitted — refresh Environment mode / Otodom Refresh after restore."
 }
 EOF
 

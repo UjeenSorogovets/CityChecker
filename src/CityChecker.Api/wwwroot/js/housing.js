@@ -1,22 +1,12 @@
-import { api, getToken } from "./api.js";
+import { api } from "./api.js";
 import { t } from "./i18n.js";
 
-/** @type {L.LayerGroup | null} */
-let anchorLayer = null;
 /** @type {L.LayerGroup | null} */
 let offerLayer = null;
 /** @type {L.LayerGroup | null} */
 let otodomLayer = null;
-/** @type {{ map: L.Map, getActiveCityId: () => string|null, getContext: () => any, onPlaceClickForAnchor?: boolean }} */
+/** @type {{ map: L.Map, getActiveCityId: () => string|null, getContext: () => any }} */
 let ctx = null;
-
-let placingAnchor = false;
-let filterState = {
-  shortlistOnly: false,
-  minScore: 0,
-  maxCommute: 0,
-  hasOffers: false,
-};
 
 const OTODOM_FILTERS_KEY = "cc_otodom_filters";
 const OTODOM_DEFAULTS = { priceMax: 650000, areaMin: 50, rooms: ["TWO", "THREE", "FOUR", "FIVE", "SIX_OR_MORE"] };
@@ -26,131 +16,29 @@ let otodomGen = 0;
 
 export function initHousing(options) {
   ctx = options;
-  anchorLayer = L.layerGroup().addTo(ctx.map);
   offerLayer = L.layerGroup().addTo(ctx.map);
   otodomLayer = L.layerGroup().addTo(ctx.map);
   wireUi();
-  refreshAnchors();
   refreshOffers();
 }
 
-export function housingMapClick(latlng) {
-  if (!placingAnchor) return false;
-  placingAnchor = false;
-  document.getElementById("housing-place-anchor")?.classList.remove("active");
-  const label = prompt(t("anchorLabelPrompt"), "Work");
-  if (!label) return true;
-  api("/api/housing/anchors", {
-    method: "POST",
-    body: JSON.stringify({ label, lat: latlng.lat, lon: latlng.lng }),
-  }).then(() => refreshAnchors()).catch(alertErr);
-  return true;
-}
-
-export function getHousingFilters() {
-  return filterState;
-}
-
-export async function enrichDistrictSheet(districtId, container) {
-  if (!container) return;
-  container.innerHTML = "";
-  const bar = document.createElement("div");
-  bar.className = "housing-district-actions";
-  bar.innerHTML = `
-    <button type="button" class="btn ghost" data-act="shortlist">${t("shortlist")}</button>
-    <button type="button" class="btn ghost" data-act="veto">${t("veto")}</button>
-    <button type="button" class="btn ghost" data-act="probe">${t("probeAmenities")}</button>
-    <button type="button" class="btn ghost" data-act="visit">${t("logVisit")}</button>
-    <button type="button" class="btn ghost" data-act="offer">${t("addOfferHere")}</button>
-    <button type="button" class="btn ghost" data-act="reminder">${t("setReminder")}</button>
-    <button type="button" class="btn ghost" data-act="risk">${t("riskNotes")}</button>
-  `;
-  bar.querySelector("[data-act=shortlist]").onclick = () => setPick(districtId, "Shortlist");
-  bar.querySelector("[data-act=veto]").onclick = () => {
-    const reason = prompt(t("vetoReasonPrompt"), "");
-    setPick(districtId, "Veto", reason || "");
-  };
-  bar.querySelector("[data-act=probe]").onclick = async () => {
-    try {
-      const p = await api(`/api/housing/picks/${districtId}/probe`, { method: "POST" });
-      alert(`${t("probeAmenities")}: parks ${p.parkCount}, shops ${p.shopCount}, quiet ${p.quietScore ?? "—"}, hwy ${p.nearestHighwayKm ?? "—"} km`);
-    } catch (e) { alertErr(e); }
-  };
-  bar.querySelector("[data-act=visit]").onclick = () => openVisitDialog(districtId);
-  bar.querySelector("[data-act=offer]").onclick = () =>
-    openOfferAt({ districtId, title: ctx.getContext?.()?.title });
-  bar.querySelector("[data-act=reminder]").onclick = async () => {
-    const when = prompt(t("reminderWhen"), new Date(Date.now() + 86400000).toISOString().slice(0, 16));
-    if (!when) return;
-    const note = prompt(t("reminderNote"), "Revisit evening") || "";
-    try {
-      const picks = await api("/api/housing/picks");
-      const cur = picks.find((p) => p.districtId === districtId);
-      await api(`/api/housing/picks/${districtId}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          status: cur?.status ?? "Exploring",
-          vetoReason: cur?.vetoReason ?? null,
-          quietScore: cur?.quietScore ?? null,
-          riskNotes: cur?.riskNotes ?? null,
-          reminderAt: new Date(when).toISOString(),
-          reminderNote: note,
-        }),
-      });
-      alert(t("reminderSaved"));
-    } catch (e) { alertErr(e); }
-  };
-  bar.querySelector("[data-act=risk]").onclick = async () => {
-    const picks = await api("/api/housing/picks");
-    const cur = picks.find((p) => p.districtId === districtId);
-    const risk = prompt(t("riskNotesPrompt"), cur?.riskNotes || "") || "";
-    try {
-      await api(`/api/housing/picks/${districtId}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          status: cur?.status ?? "Exploring",
-          vetoReason: cur?.vetoReason ?? null,
-          quietScore: cur?.quietScore ?? null,
-          reminderAt: cur?.reminderAt ?? null,
-          reminderNote: cur?.reminderNote ?? null,
-          riskNotes: risk,
-        }),
-      });
-      alert(t("riskSaved"));
-    } catch (e) { alertErr(e); }
-  };
-  container.appendChild(bar);
+export function openOfferAt({ lat, lon, cityId, districtId, buildingId, title }) {
+  openOfferDialog({ lat, lon, districtId, title, cityId, buildingId });
 }
 
 function wireUi() {
-  const panel = document.getElementById("housing-panel");
-  const toggle = document.getElementById("housing-toggle");
-  toggle?.addEventListener("click", () => panel?.classList.toggle("open"));
+  const offersPanel = document.getElementById("offers-panel");
+  const offersToggle = document.getElementById("offers-toggle");
 
-  panel?.querySelectorAll("[data-htab]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      panel.querySelectorAll("[data-htab]").forEach((b) => b.classList.remove("active"));
-      panel.querySelectorAll("[data-hpanel]").forEach((p) => p.classList.add("hidden"));
-      btn.classList.add("active");
-      panel.querySelector(`[data-hpanel="${btn.dataset.htab}"]`)?.classList.remove("hidden");
-      if (btn.dataset.htab === "compare") loadCompare();
-      if (btn.dataset.htab === "finalists") loadFinalists();
-      if (btn.dataset.htab === "weights") loadProfile();
-      if (btn.dataset.htab === "offers") refreshOffersList();
-    });
+  offersToggle?.addEventListener("click", () => {
+    const open = !offersPanel?.classList.contains("open");
+    offersPanel?.classList.toggle("open", open);
+    if (open) {
+      refreshOffersList();
+      if (otodomEnabled) scheduleOtodomReload(true);
+    }
   });
 
-  document.getElementById("housing-place-anchor")?.addEventListener("click", (e) => {
-    placingAnchor = !placingAnchor;
-    e.currentTarget.classList.toggle("active", placingAnchor);
-  });
-
-  document.getElementById("housing-refresh-compare")?.addEventListener("click", () => loadCompare());
-  document.getElementById("housing-export")?.addEventListener("click", exportCsv);
-  document.getElementById("housing-save-weights")?.addEventListener("click", saveProfile);
-  document.getElementById("housing-add-offer")?.addEventListener("click", () => openOfferDialog({}));
-
-  const otodomShow = document.getElementById("otodom-show");
   loadOtodomFiltersIntoUi();
   for (const id of ["otodom-price-max", "otodom-area-min"]) {
     document.getElementById(id)?.addEventListener("change", () => {
@@ -164,7 +52,7 @@ function wireUi() {
       if (otodomEnabled) scheduleOtodomReload();
     });
   });
-  otodomShow?.addEventListener("change", (e) => {
+  document.getElementById("otodom-show")?.addEventListener("change", (e) => {
     otodomEnabled = !!e.target.checked;
     if (!otodomEnabled) {
       otodomLayer?.clearLayers();
@@ -173,137 +61,17 @@ function wireUi() {
     }
     scheduleOtodomReload(true);
   });
+  document.getElementById("otodom-refresh")?.addEventListener("click", () => {
+    const show = document.getElementById("otodom-show");
+    if (show && !show.checked) {
+      show.checked = true;
+      otodomEnabled = true;
+    }
+    scheduleOtodomReload(true, { refresh: true });
+  });
   ctx.map.on("moveend", () => {
     if (otodomEnabled) scheduleOtodomReload();
   });
-
-  document.getElementById("filter-shortlist")?.addEventListener("change", async (e) => {
-    filterState.shortlistOnly = e.target.checked;
-    await syncMapFilter();
-  });
-  document.getElementById("filter-minscore")?.addEventListener("change", (e) => {
-    filterState.minScore = Number(e.target.value) || 0;
-  });
-  document.getElementById("filter-maxcommute")?.addEventListener("change", (e) => {
-    filterState.maxCommute = Number(e.target.value) || 0;
-  });
-  document.getElementById("filter-has-offers")?.addEventListener("change", async (e) => {
-    filterState.hasOffers = e.target.checked;
-    await refreshOffers();
-  });
-}
-
-async function syncMapFilter() {
-  if (!ctx?.onMapFilterChange) return;
-  if (!filterState.shortlistOnly) {
-    ctx.onMapFilterChange(null);
-    return;
-  }
-  const cityId = ctx.getActiveCityId?.();
-  const picks = await api(`/api/housing/picks${cityId ? `?cityId=${cityId}` : ""}`);
-  const ids = picks.filter((p) => p.status === "Shortlist").map((p) => p.districtId);
-  ctx.onMapFilterChange(ids);
-}
-
-async function refreshAnchors() {
-  if (!anchorLayer) return;
-  anchorLayer.clearLayers();
-  const list = await api("/api/housing/anchors");
-  const ul = document.getElementById("housing-anchors-list");
-  if (ul) {
-    ul.innerHTML = "";
-    for (const a of list) {
-      const li = document.createElement("li");
-      li.innerHTML = `<span>${a.label}</span> <button type="button" class="btn ghost danger">×</button>`;
-      li.querySelector("button").onclick = async () => {
-        await api(`/api/housing/anchors/${a.anchorId}`, { method: "DELETE" });
-        refreshAnchors();
-      };
-      ul.appendChild(li);
-      const m = L.circleMarker([a.lat, a.lon], {
-        radius: 7, color: "#b33a3a", fillColor: "#b33a3a", fillOpacity: 0.9, weight: 2,
-      });
-      m.bindTooltip(a.label);
-      anchorLayer.addLayer(m);
-    }
-  }
-}
-
-async function setPick(districtId, status, vetoReason = null) {
-  try {
-    await api(`/api/housing/picks/${districtId}`, {
-      method: "PUT",
-      body: JSON.stringify({ status, vetoReason }),
-    });
-  } catch (e) { alertErr(e); }
-}
-
-async function loadCompare() {
-  const cityId = ctx.getActiveCityId();
-  const el = document.getElementById("housing-compare");
-  if (!el) return;
-  if (!cityId) {
-    el.innerHTML = `<p class="muted">${t("zoomIntoCityFirst")}</p>`;
-    return;
-  }
-  el.innerHTML = `<p class="muted">${t("loading")}</p>`;
-  try {
-    const rows = await api(`/api/housing/compare/${cityId}`);
-    let filtered = rows.filter((r) => r.status !== "Veto");
-    if (filterState.shortlistOnly) filtered = filtered.filter((r) => r.status === "Shortlist");
-    if (filterState.minScore > 0) filtered = filtered.filter((r) => (r.comfortAvg ?? 0) >= filterState.minScore);
-    if (filterState.maxCommute > 0) filtered = filtered.filter((r) => r.worstCommuteMin == null || r.worstCommuteMin <= filterState.maxCommute);
-
-    if (!filtered.length) {
-      el.innerHTML = `<p class="muted">${t("noCompareRows")}</p>`;
-      return;
-    }
-    const table = document.createElement("table");
-    table.className = "housing-table";
-    table.innerHTML = `<thead><tr>
-      <th>${t("name")}</th><th>${t("status")}</th><th>${t("rank")}</th>
-      <th>${t("comfort")}</th><th>${t("commute")}</th><th>${t("quiet")}</th>
-      <th>${t("parks")}</th><th>${t("visits")}</th>
-    </tr></thead>`;
-    const tbody = document.createElement("tbody");
-    for (const r of filtered) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${r.name}</td><td>${r.status}</td><td>${r.rankScore ?? "—"}</td>
-        <td>${fmt(r.comfortAvg)}</td><td>${fmt(r.worstCommuteMin)}'</td><td>${r.quietScore ?? "—"}</td>
-        <td>${r.parkCount ?? "—"}</td><td>${r.visitCount}</td>`;
-      tbody.appendChild(tr);
-    }
-    table.appendChild(tbody);
-    el.innerHTML = "";
-    el.appendChild(table);
-  } catch (e) {
-    el.textContent = e.message || t("authFailed");
-  }
-}
-
-function openVisitDialog(districtId) {
-  const evening = numPrompt(t("visitEvening"), 7);
-  const daylight = numPrompt(t("visitDaylight"), 7);
-  const dog = numPrompt(t("visitDogWalk"), 7);
-  const sat = numPrompt(t("visitSaturday"), 7);
-  const winter = numPrompt(t("visitWinter"), 5);
-  const notes = prompt(t("visitNotes"), "") || "";
-  api("/api/housing/visits", {
-    method: "POST",
-    body: JSON.stringify({
-      districtId,
-      eveningFeel: evening,
-      daylight,
-      dogWalk: dog,
-      saturdayLife: sat,
-      winterFeel: winter,
-      notes,
-    }),
-  }).then(() => alert(t("visitSaved"))).catch(alertErr);
-}
-
-export function openOfferAt({ lat, lon, cityId, districtId, buildingId, title }) {
-  openOfferDialog({ lat, lon, districtId, title, cityId, buildingId });
 }
 
 function openOfferDialog(seed = {}) {
@@ -371,7 +139,6 @@ async function refreshOffers() {
   offerLayer.clearLayers();
   const list = await api("/api/housing/offers");
   for (const o of list) {
-    if (filterState.hasOffers && !o.url && o.price == null) continue;
     const m = L.circleMarker([o.lat, o.lon], {
       radius: o.isFinalist ? 9 : 6,
       color: o.mode === "Buy" ? "#0d6e6e" : "#3a5fb3",
@@ -416,63 +183,6 @@ async function refreshOffersList() {
   }
 }
 
-async function loadFinalists() {
-  const el = document.getElementById("housing-finalists");
-  if (!el) return;
-  const rows = await api("/api/housing/finalists");
-  if (!rows.length) {
-    el.innerHTML = `<p class="muted">${t("noFinalists")}</p>`;
-    return;
-  }
-  const table = document.createElement("table");
-  table.className = "housing-table";
-  table.innerHTML = `<thead><tr><th>${t("name")}</th><th>${t("mode")}</th><th>${t("monthlyTotal")}</th><th>${t("dealAvg")}</th><th>${t("offerKillerFlaw")}</th></tr></thead>`;
-  const tb = document.createElement("tbody");
-  for (const r of rows) {
-    const o = r.offer;
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${o.title}</td><td>${o.mode}</td><td>${r.monthlyTotal ?? "—"}</td><td>${r.dealAvg ?? "—"}</td><td>${o.killerFlaw || "—"}</td>`;
-    tb.appendChild(tr);
-  }
-  table.appendChild(tb);
-  el.innerHTML = "";
-  el.appendChild(table);
-}
-
-async function loadProfile() {
-  const p = await api("/api/housing/profile");
-  document.getElementById("w-commute").value = p.weightCommute;
-  document.getElementById("w-quiet").value = p.weightQuiet;
-  document.getElementById("w-price").value = p.weightPrice;
-  document.getElementById("w-green").value = p.weightGreen;
-  document.getElementById("w-comfort").value = p.weightComfort;
-}
-
-async function saveProfile() {
-  const body = {
-    weightCommute: Number(document.getElementById("w-commute").value) || 0,
-    weightQuiet: Number(document.getElementById("w-quiet").value) || 0,
-    weightPrice: Number(document.getElementById("w-price").value) || 0,
-    weightGreen: Number(document.getElementById("w-green").value) || 0,
-    weightComfort: Number(document.getElementById("w-comfort").value) || 0,
-  };
-  await api("/api/housing/profile", { method: "PUT", body: JSON.stringify(body) });
-  alert(t("weightsSaved"));
-}
-
-async function exportCsv() {
-  const token = getToken();
-  const res = await fetch("/api/housing/export.csv", {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) { alert(t("authFailed")); return; }
-  const blob = await res.blob();
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "citychecker-export.csv";
-  a.click();
-}
-
 function setOtodomStatus(text) {
   const el = document.getElementById("otodom-status");
   if (el) el.textContent = text;
@@ -515,12 +225,52 @@ function persistOtodomFilters() {
   localStorage.setItem(OTODOM_FILTERS_KEY, JSON.stringify(readOtodomFilters()));
 }
 
-function scheduleOtodomReload(immediate = false) {
+function scheduleOtodomReload(immediate = false, opts = {}) {
   clearTimeout(otodomTimer);
-  otodomTimer = setTimeout(() => reloadOtodomPins(), immediate ? 0 : 450);
+  otodomTimer = setTimeout(() => reloadOtodomPins(opts), immediate ? 0 : 450);
 }
 
-async function reloadOtodomPins() {
+function otodomRequestBody(cityId, filters, bounds) {
+  return {
+    cityId,
+    priceMax: filters.priceMax,
+    areaMin: filters.areaMin,
+    rooms: filters.rooms,
+    transaction: "SELL",
+    west: bounds.getWest(),
+    south: bounds.getSouth(),
+    east: bounds.getEast(),
+    north: bounds.getNorth(),
+  };
+}
+
+function formatOtodomStatus(res) {
+  const status = res.status || "";
+  if (status === "Missing") return t("otodomMissing");
+
+  const n = (res.pins || []).length;
+  const total = res.totalMatched;
+  const listed = res.listed;
+  const parts = [];
+  if (n) parts.push(`${t("otodomLoaded")}: ${n}`);
+  else parts.push(t("otodomEmpty"));
+  if (total != null) {
+    let mid = `${t("otodomMatched")}: ${total}`;
+    if (listed != null && listed < total) mid += ` (${t("otodomListed")}: ${listed})`;
+    parts.push(mid);
+  }
+  if (res.fetchedAt) {
+    const d = new Date(res.fetchedAt);
+    if (!Number.isNaN(d.getTime())) {
+      parts.push(`${t("otodomUpdated")}: ${d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}`);
+    }
+  }
+  if (status === "Failed" && res.error) parts.push(res.error);
+  if (status === "Refreshing") parts.push(t("otodomRefreshing"));
+  return parts.join(" · ");
+}
+
+async function reloadOtodomPins(opts = {}) {
   if (!otodomEnabled || !ctx?.map || !otodomLayer) return;
   const cityId = ctx.getActiveCityId?.();
   if (!cityId) {
@@ -536,45 +286,32 @@ async function reloadOtodomPins() {
     return;
   }
 
+  const refresh = !!opts.refresh;
   const b = ctx.map.getBounds();
   const gen = ++otodomGen;
-  setOtodomStatus(t("otodomLoading"));
+  setOtodomStatus(refresh ? t("otodomRefreshing") : t("otodomLoading"));
+  const btn = document.getElementById("otodom-refresh");
+  if (refresh && btn) btn.disabled = true;
   try {
-    const res = await api("/api/housing/otodom/pins", {
+    const path = refresh ? "/api/housing/otodom/pins/refresh" : "/api/housing/otodom/pins";
+    const res = await api(path, {
       method: "POST",
-      body: JSON.stringify({
-        cityId,
-        priceMax: filters.priceMax,
-        areaMin: filters.areaMin,
-        rooms: filters.rooms,
-        transaction: "SELL",
-        west: b.getWest(),
-        south: b.getSouth(),
-        east: b.getEast(),
-        north: b.getNorth(),
-      }),
+      body: JSON.stringify(otodomRequestBody(cityId, filters, b)),
     });
     if (gen !== otodomGen) return;
-    if (!res.ok) {
+    if (!res.ok && res.status !== "Failed") {
       otodomLayer.clearLayers();
       setOtodomStatus(res.error || t("otodomEmpty"));
       return;
     }
     renderOtodomPins(res.pins || []);
-    const n = (res.pins || []).length;
-    const total = res.totalMatched;
-    const listed = res.listed;
-    if (!n) {
-      setOtodomStatus(t("otodomEmpty"));
-    } else if (total != null) {
-      setOtodomStatus(`${t("otodomLoaded")}: ${n} · ${t("otodomMatched")}: ${total}${listed != null && listed < total ? ` (${t("otodomListed")}: ${listed})` : ""}`);
-    } else {
-      setOtodomStatus(`${t("otodomLoaded")}: ${n}`);
-    }
+    setOtodomStatus(formatOtodomStatus(res));
   } catch (e) {
     if (gen !== otodomGen) return;
     otodomLayer.clearLayers();
     setOtodomStatus(e.message || t("otodomEmpty"));
+  } finally {
+    if (refresh && btn) btn.disabled = false;
   }
 }
 
@@ -635,10 +372,6 @@ function numPrompt(label, fallback) {
   if (v === null || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
-}
-
-function fmt(n) {
-  return n == null ? "—" : (typeof n === "number" ? n.toFixed(1) : n);
 }
 
 function alertErr(e) {

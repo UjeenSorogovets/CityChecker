@@ -18,6 +18,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<DistrictImportRaw> DistrictsImportRaw => Set<DistrictImportRaw>();
     public DbSet<DistrictEnvironment> DistrictEnvironments => Set<DistrictEnvironment>();
     public DbSet<CityEnvironmentSources> CityEnvironmentSources => Set<CityEnvironmentSources>();
+    public DbSet<OtodomPinSet> OtodomPinSets => Set<OtodomPinSet>();
+    public DbSet<OtodomPin> OtodomPins => Set<OtodomPin>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -154,6 +156,31 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.SourcesGeoJson).IsRequired();
             e.HasOne(x => x.City).WithOne().HasForeignKey<CityEnvironmentSources>(x => x.CityId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<OtodomPinSet>(e =>
+        {
+            e.HasKey(x => x.PinSetId);
+            e.Property(x => x.Transaction).HasMaxLength(16).IsRequired();
+            e.Property(x => x.RoomsKey).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            e.Property(x => x.LastError).HasMaxLength(1000);
+            e.HasOne(x => x.City).WithMany().HasForeignKey(x => x.CityId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.CityId, x.Transaction, x.PriceMax, x.AreaMin, x.RoomsKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<OtodomPin>(e =>
+        {
+            e.HasKey(x => x.PinId);
+            e.Property(x => x.Slug).HasMaxLength(400).IsRequired();
+            e.Property(x => x.Title).HasMaxLength(500).IsRequired();
+            e.Property(x => x.Rooms).HasMaxLength(64);
+            e.Property(x => x.Url).HasMaxLength(1000).IsRequired();
+            e.HasOne(x => x.PinSet).WithMany(s => s.Pins).HasForeignKey(x => x.PinSetId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.PinSetId, x.ExternalId }).IsUnique();
+            e.HasIndex(x => new { x.PinSetId, x.Lat, x.Lon });
         });
     }
 }

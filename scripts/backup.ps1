@@ -60,12 +60,12 @@ $manifest = @{
   createdAt        = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
   gitSha           = $gitSha
   postgresVersion  = $pgVer
-  excludedTables   = @("DistrictEnvironments", "CityEnvironmentSources", "districts_import_raw")
+  excludedTables   = @("DistrictEnvironments", "CityEnvironmentSources", "OtodomPinSets", "OtodomPins", "districts_import_raw")
   secretsChecklist = @(
     "AUTH_JWT_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_ALLOWED_USER_ID",
     "CONTACT_EMAIL", "DOMAIN", "APP_PUBLIC_BASE_URL"
   )
-  notes            = "Copy .env separately. Env risk cache is omitted — refresh via POST /api/admin/refresh-environment/{cityId} or open Environment mode."
+  notes            = "Copy .env separately. Env risk and Otodom pin caches are omitted — refresh Environment mode / Otodom Refresh after restore."
 } | ConvertTo-Json -Depth 4
 Set-Content -Path (Join-Path $stage "MANIFEST.json") -Value $manifest -Encoding utf8
 

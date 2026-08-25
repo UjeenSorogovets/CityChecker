@@ -3,22 +3,23 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CityChecker.Api.Data;
+using CityChecker.Api.Data.Entities;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace CityChecker.Api.Services;
 
 /// <summary>
-/// Personal-use Otodom map pins via Next.js data endpoints (no official API).
-/// Builds search from city + filters; paginates list pages; detail JSON for coords.
-/// Full pin set is cached without bbox; viewport filter is applied in memory.
+/// Shared Otodom map pins: Postgres cache by city+filters; Refresh scrapes Next.js data endpoints.
 /// </summary>
 public class OtodomMapService(
+    AppDbContext db,
     HttpClient http,
     IMemoryCache cache,
+    IServiceScopeFactory scopes,
     ILogger<OtodomMapService> log)
 {
-    static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
     static readonly TimeSpan BuildIdTtl = TimeSpan.FromHours(6);
     const int PageSize = 36;
     // ponytail: hard cap ~20 pages; raise if city searches grow past this
@@ -39,118 +40,220 @@ public class OtodomMapService(
     static readonly string[] DefaultRooms =
         ["TWO", "THREE", "FOUR", "FIVE", "SIX_OR_MORE"];
 
-    // ponytail: coalesce concurrent loads for the same filter set (moveend stampede)
-    static readonly ConcurrentDictionary<string, Task<CachedOtodomSet>> Inflight = new();
+    // ponytail: coalesce concurrent refreshes for the same filter key
+    static readonly ConcurrentDictionary<string, Task<OtodomPinsResult>> InflightRefresh = new();
 
-    public async Task<OtodomPinsResult> GetPinsAsync(OtodomPinsQuery q, CancellationToken ct = default)
+    public async Task<OtodomPinsResult> GetCachedPinsAsync(OtodomPinsQuery q, CancellationToken ct = default)
     {
-        string pathAfterWyniki;
-        Dictionary<string, string> query;
+        if (!TryResolveFilterKey(q, out var key, out var pathAfterWyniki, out var otodomQuery, out var err))
+            return OtodomPinsResult.Fail(err!);
 
-        if (!string.IsNullOrWhiteSpace(q.SearchUrl) &&
-            TryParseSearchUrl(q.SearchUrl, out pathAfterWyniki, out query))
+        var set = await FindPinSetAsync(key, ct);
+        if (set is null)
+            return new OtodomPinsResult(true, null, [], null, null, null, "Missing");
+
+        var tx = set.Transaction;
+        var pins = await db.OtodomPins.AsNoTracking()
+            .Where(p => p.PinSetId == set.PinSetId
+                        && p.Lat >= q.South && p.Lat <= q.North
+                        && p.Lon >= q.West && p.Lon <= q.East)
+            .OrderBy(p => p.ExternalId)
+            .Select(p => new OtodomPinDto(
+                p.ExternalId, p.Slug, p.Title, p.Lat, p.Lon, p.Price, p.AreaM2, p.Rooms, tx, p.Url))
+            .ToListAsync(ct);
+
+        return new OtodomPinsResult(
+            true, set.Status == "Failed" ? set.LastError : null, pins,
+            set.FetchedAt, set.TotalMatched, set.Listed, set.Status);
+    }
+
+    public async Task<OtodomPinsResult> RefreshPinsAsync(OtodomPinsQuery q, CancellationToken ct = default)
+    {
+        if (!TryResolveFilterKey(q, out var key, out var pathAfterWyniki, out var otodomQuery, out var err))
+            return OtodomPinsResult.Fail(err!);
+
+        var flightKey = key.CacheKey;
+        var load = InflightRefresh.GetOrAdd(flightKey, _ => RefreshAndStoreAsync(key, pathAfterWyniki, otodomQuery));
+        try
         {
-            // optional advanced override
+            await load.WaitAsync(ct);
+            return await GetCachedPinsAsync(q, ct);
         }
-        else if (!TryBuildFromFilters(q, out pathAfterWyniki, out query, out var buildErr))
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return OtodomPinsResult.Fail(buildErr!);
+            log.LogWarning(ex, "Otodom refresh failed");
+            return OtodomPinsResult.Fail(FormatError(ex));
+        }
+        finally
+        {
+            InflightRefresh.TryRemove(flightKey, out _);
+        }
+    }
+
+    async Task<OtodomPinsResult> RefreshAndStoreAsync(
+        FilterKey key,
+        string pathAfterWyniki,
+        Dictionary<string, string> otodomQuery)
+    {
+        await using (var scope = scopes.CreateAsyncScope())
+        {
+            var sdb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var set = await FindPinSetAsync(sdb, key, CancellationToken.None);
+            if (set is null)
+            {
+                set = new OtodomPinSet
+                {
+                    PinSetId = Guid.NewGuid(),
+                    CityId = key.CityId,
+                    Transaction = key.Transaction,
+                    PriceMax = key.PriceMax,
+                    AreaMin = key.AreaMin,
+                    RoomsKey = key.RoomsKey,
+                    Status = "Refreshing",
+                };
+                sdb.OtodomPinSets.Add(set);
+            }
+            else
+            {
+                set.Status = "Refreshing";
+                set.LastError = null;
+            }
+            await sdb.SaveChangesAsync(CancellationToken.None);
         }
 
-        // ponytail: do NOT set viewType=listing — Otodom returns __N_REDIRECT with no searchAds
-        query.Remove("viewType");
-        query["limit"] = PageSize.ToString(CultureInfo.InvariantCulture);
-        query["by"] = query.GetValueOrDefault("by") ?? "DEFAULT";
-        query["direction"] = query.GetValueOrDefault("direction") ?? "DESC";
-        // omit mapBounds so Otodom returns full city match; we filter by viewport locally
-
-        var cacheKey =
-            $"otodom:v2:{pathAfterWyniki}:{string.Join("&", query.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}={kv.Value}"))}";
-        if (!cache.TryGetValue(cacheKey, out CachedOtodomSet? set) || set is null)
+        try
         {
+            // ponytail: do NOT set viewType=listing — Otodom returns __N_REDIRECT with no searchAds
+            otodomQuery.Remove("viewType");
+            otodomQuery["limit"] = PageSize.ToString(CultureInfo.InvariantCulture);
+            otodomQuery["by"] = otodomQuery.GetValueOrDefault("by") ?? "DEFAULT";
+            otodomQuery["direction"] = otodomQuery.GetValueOrDefault("direction") ?? "DESC";
+
+            var buildId = await GetBuildIdAsync(CancellationToken.None)
+                ?? throw new InvalidOperationException("Could not read Otodom buildId (site changed or blocked).");
+            var (summaries, totalMatched) = await FetchAllListPagesAsync(
+                buildId, pathAfterWyniki, otodomQuery, CancellationToken.None);
+            var scraped = await EnrichAllCoordinatesAsync(buildId, summaries, CancellationToken.None);
+
+            await using var scope = scopes.CreateAsyncScope();
+            var sdb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var set = await FindPinSetAsync(sdb, key, CancellationToken.None)
+                ?? throw new InvalidOperationException("Otodom pin set missing after refresh start.");
+
+            var oldPins = await sdb.OtodomPins.Where(p => p.PinSetId == set.PinSetId).ToListAsync(CancellationToken.None);
+            sdb.OtodomPins.RemoveRange(oldPins);
+
+            foreach (var p in scraped)
+            {
+                sdb.OtodomPins.Add(new OtodomPin
+                {
+                    PinId = Guid.NewGuid(),
+                    PinSetId = set.PinSetId,
+                    ExternalId = p.Id,
+                    Slug = Truncate(p.Slug, 400),
+                    Title = Truncate(p.Title, 500),
+                    Lat = p.Lat,
+                    Lon = p.Lon,
+                    Price = p.Price,
+                    AreaM2 = p.AreaM2,
+                    Rooms = string.IsNullOrEmpty(p.Rooms) ? null : Truncate(p.Rooms, 64),
+                    Url = Truncate(p.Url, 1000),
+                });
+            }
+
+            set.TotalMatched = totalMatched;
+            set.Listed = summaries.Count;
+            set.FetchedAt = DateTime.UtcNow;
+            set.Status = "Ready";
+            set.LastError = null;
+            await sdb.SaveChangesAsync(CancellationToken.None);
+
+            return new OtodomPinsResult(true, null, scraped, set.FetchedAt, set.TotalMatched, set.Listed, "Ready");
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "Otodom refresh store failed for {Key}", key.CacheKey);
+            var msg = Truncate(FormatError(ex), 1000);
             try
             {
-                var load = Inflight.GetOrAdd(cacheKey, key => LoadAndCacheAsync(key, pathAfterWyniki, query));
-                try
+                await using var scope = scopes.CreateAsyncScope();
+                var sdb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var set = await FindPinSetAsync(sdb, key, CancellationToken.None);
+                if (set is not null)
                 {
-                    set = await load.WaitAsync(ct);
-                }
-                finally
-                {
-                    Inflight.TryRemove(cacheKey, out _);
+                    set.Status = "Failed";
+                    set.LastError = msg;
+                    // keep previous pins if any
+                    await sdb.SaveChangesAsync(CancellationToken.None);
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception saveEx)
             {
-                Inflight.TryRemove(cacheKey, out _);
-                log.LogWarning(ex, "Otodom pins failed");
-                var msg = ex.Message switch
-                {
-                    var m when m.Contains("buildId", StringComparison.OrdinalIgnoreCase) => m,
-                    var m when m.Contains("Unexpected", StringComparison.OrdinalIgnoreCase) => m,
-                    var m when m.Contains("returned", StringComparison.OrdinalIgnoreCase) => m,
-                    _ => "Otodom request failed (timeout or blocked). Try again later.",
-                };
-                return OtodomPinsResult.Fail(msg);
+                log.LogWarning(saveEx, "Otodom failed to persist Failed status");
             }
+            return OtodomPinsResult.Fail(msg);
         }
-
-        var inView = set.Pins
-            .Where(p => p.Lat >= q.South && p.Lat <= q.North && p.Lon >= q.West && p.Lon <= q.East)
-            .ToList();
-        return new OtodomPinsResult(true, null, inView, set.FetchedAt, set.TotalMatched, set.Listed);
     }
 
-    async Task<CachedOtodomSet> LoadAndCacheAsync(
-        string cacheKey,
-        string pathAfterWyniki,
-        Dictionary<string, string> query)
-    {
-        var buildId = await GetBuildIdAsync(CancellationToken.None)
-            ?? throw new InvalidOperationException("Could not read Otodom buildId (site changed or blocked).");
-        var (summaries, totalMatched) = await FetchAllListPagesAsync(buildId, pathAfterWyniki, query, CancellationToken.None);
-        var allPins = await EnrichAllCoordinatesAsync(buildId, summaries, CancellationToken.None);
-        var set = new CachedOtodomSet(allPins, totalMatched, summaries.Count, DateTime.UtcNow);
-        cache.Set(cacheKey, set, CacheTtl);
-        return set;
-    }
+    static async Task<OtodomPinSet?> FindPinSetAsync(AppDbContext sdb, FilterKey key, CancellationToken ct) =>
+        await sdb.OtodomPinSets.FirstOrDefaultAsync(
+            s => s.CityId == key.CityId
+                 && s.Transaction == key.Transaction
+                 && s.PriceMax == key.PriceMax
+                 && s.AreaMin == key.AreaMin
+                 && s.RoomsKey == key.RoomsKey,
+            ct);
 
-    static bool TryBuildFromFilters(
+    async Task<OtodomPinSet?> FindPinSetAsync(FilterKey key, CancellationToken ct) =>
+        await FindPinSetAsync(db, key, ct);
+
+    static bool TryResolveFilterKey(
         OtodomPinsQuery q,
+        out FilterKey key,
         out string pathAfterWyniki,
-        out Dictionary<string, string> query,
+        out Dictionary<string, string> otodomQuery,
         out string? error)
     {
+        key = default;
         pathAfterWyniki = "";
-        query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        otodomQuery = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         error = null;
 
         if (q.CityId is null || !CityPaths.TryGetValue(q.CityId.Value, out var cityPath))
         {
-            error = "Pick a seeded city (Łódź / Kraków / Warszawa) or pass a wyniki URL.";
+            error = "Pick a seeded city (Łódź / Kraków / Warszawa).";
             return false;
         }
 
-        var tx = (q.Transaction ?? "SELL").Equals("RENT", StringComparison.OrdinalIgnoreCase)
-            ? "wynajem"
-            : "sprzedaz";
-        pathAfterWyniki = $"{tx}/mieszkanie/{cityPath}";
+        var transaction = (q.Transaction ?? "SELL").Equals("RENT", StringComparison.OrdinalIgnoreCase)
+            ? "RENT"
+            : "SELL";
+        var txPath = transaction == "RENT" ? "wynajem" : "sprzedaz";
+        pathAfterWyniki = $"{txPath}/mieszkanie/{cityPath}";
 
-        query["ownerTypeSingleSelect"] = "ALL";
-        var priceMax = q.PriceMax ?? 650_000;
-        var areaMin = q.AreaMin ?? 50;
-        query["priceMax"] = ((int)Math.Round(priceMax)).ToString(CultureInfo.InvariantCulture);
-        query["areaMin"] = ((int)Math.Round(areaMin)).ToString(CultureInfo.InvariantCulture);
+        var priceMax = (int)Math.Round(q.PriceMax ?? 650_000);
+        var areaMin = (int)Math.Round(q.AreaMin ?? 50);
+        var rooms = NormalizeRooms(q.Rooms);
+        var roomsKey = string.Join(",", rooms.OrderBy(r => r, StringComparer.Ordinal));
 
-        var rooms = (q.Rooms is { Length: > 0 } ? q.Rooms : DefaultRooms)
+        otodomQuery["ownerTypeSingleSelect"] = "ALL";
+        otodomQuery["priceMax"] = priceMax.ToString(CultureInfo.InvariantCulture);
+        otodomQuery["areaMin"] = areaMin.ToString(CultureInfo.InvariantCulture);
+        otodomQuery["roomsNumber"] = "[" + string.Join(",", rooms) + "]";
+
+        key = new FilterKey(q.CityId.Value, transaction, priceMax, areaMin, roomsKey);
+        return true;
+    }
+
+    static string[] NormalizeRooms(string[]? raw)
+    {
+        var rooms = (raw is { Length: > 0 } ? raw : DefaultRooms)
             .Select(NormalizeRoom)
             .Where(r => r is not null)
             .Cast<string>()
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        if (rooms.Length == 0) rooms = DefaultRooms;
-        query["roomsNumber"] = "[" + string.Join(",", rooms) + "]";
-        return true;
+        return rooms.Length == 0 ? DefaultRooms : rooms;
     }
 
     static string? NormalizeRoom(string? raw)
@@ -167,6 +270,20 @@ public class OtodomMapService(
             "6" or "SIX" or "SIX_OR_MORE" or "6+" => "SIX_OR_MORE",
             _ => null,
         };
+    }
+
+    static string FormatError(Exception ex) => ex.Message switch
+    {
+        var m when m.Contains("buildId", StringComparison.OrdinalIgnoreCase) => m,
+        var m when m.Contains("Unexpected", StringComparison.OrdinalIgnoreCase) => m,
+        var m when m.Contains("returned", StringComparison.OrdinalIgnoreCase) => m,
+        _ => "Otodom request failed (timeout or blocked). Try again later.",
+    };
+
+    static string Truncate(string? s, int max)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        return s.Length <= max ? s : s[..max];
     }
 
     async Task<(List<OtodomAdSummary> Summaries, int TotalMatched)> FetchAllListPagesAsync(
@@ -405,11 +522,23 @@ public class OtodomMapService(
         if (q.GetValueOrDefault("priceMax") != "650000")
             throw new InvalidOperationException("OtodomMapService.SelfCheck: bad query");
 
-        var built = TryBuildFromFilters(
-            new OtodomPinsQuery(SeedData.LodzId, 650000, 50, DefaultRooms, "SELL", 19, 51, 20, 52, null),
-            out var builtPath, out _, out var err);
-        if (!built || err is not null || !builtPath.Contains("lodzkie/lodz", StringComparison.Ordinal))
-            throw new InvalidOperationException("OtodomMapService.SelfCheck: filter build failed");
+        if (!TryResolveFilterKey(
+                new OtodomPinsQuery(SeedData.LodzId, 650000, 50, DefaultRooms, "SELL", 19, 51, 20, 52, null),
+                out var key, out var builtPath, out _, out var err)
+            || err is not null
+            || !builtPath.Contains("lodzkie/lodz", StringComparison.Ordinal)
+            || key.RoomsKey.Length == 0)
+            throw new InvalidOperationException("OtodomMapService.SelfCheck: filter key failed");
+    }
+
+    readonly record struct FilterKey(
+        Guid CityId,
+        string Transaction,
+        int PriceMax,
+        int AreaMin,
+        string RoomsKey)
+    {
+        public string CacheKey => $"{CityId:N}|{Transaction}|{PriceMax}|{AreaMin}|{RoomsKey}";
     }
 
     readonly record struct OtodomAdSummary(
@@ -420,12 +549,6 @@ public class OtodomMapService(
         double? Price,
         double? AreaM2,
         string? Rooms);
-
-    sealed record CachedOtodomSet(
-        IReadOnlyList<OtodomPinDto> Pins,
-        int TotalMatched,
-        int Listed,
-        DateTime FetchedAt);
 }
 
 public record OtodomPinsQuery(
@@ -458,7 +581,8 @@ public record OtodomPinsResult(
     IReadOnlyList<OtodomPinDto> Pins,
     DateTime? FetchedAt,
     int? TotalMatched = null,
-    int? Listed = null)
+    int? Listed = null,
+    string? Status = null)
 {
-    public static OtodomPinsResult Fail(string error) => new(false, error, [], null, null, null);
+    public static OtodomPinsResult Fail(string error) => new(false, error, [], null, null, null, "Failed");
 }

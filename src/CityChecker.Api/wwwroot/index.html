@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="/logo.svg" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.css" crossorigin="" />
-  <link rel="stylesheet" href="/css/app.css?v=otodom2" />
+  <link rel="stylesheet" href="/css/app.css?v=otodom5" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js" crossorigin=""></script>
@@ -55,9 +55,8 @@
         <span data-i18n="appTitle">Poland City Comfort Mapper</span>
       </div>
       <div class="topbar-actions">
-        <span id="zoom-mode" class="zoom-mode"></span>
         <button type="button" id="map-mode-toggle" class="btn ghost" data-i18n="mapModeComfort">Comfort</button>
-        <button type="button" id="housing-toggle" class="btn ghost" data-i18n="housingTools">Decide</button>
+        <button type="button" id="offers-toggle" class="btn ghost" data-i18n="offers">Offers</button>
         <button type="button" id="lang-toggle" class="btn ghost" aria-label="Language">EN</button>
         <button type="button" id="sign-out" class="btn ghost" data-i18n="signOut">Sign out</button>
       </div>
@@ -79,71 +78,34 @@
         <div><span class="env-swatch factory"></span> <span data-i18n="envIndustrial">Industry</span></div>
         <div class="env-legend-hint" data-i18n="envLegendHint">Light dashed ring ≈ possible reach. Filled wedge ≈ usual downwind plume (odor/emissions).</div>
       </div>
-      <aside id="housing-panel" class="housing-panel">
-        <div class="housing-tabs">
-          <button type="button" class="auth-tab active" data-htab="anchors" data-i18n="anchors">Anchors</button>
-          <button type="button" class="auth-tab" data-htab="compare" data-i18n="compare">Compare</button>
-          <button type="button" class="auth-tab" data-htab="offers" data-i18n="offers">Offers</button>
-          <button type="button" class="auth-tab" data-htab="finalists" data-i18n="finalists">Finalists</button>
-          <button type="button" class="auth-tab" data-htab="weights" data-i18n="weights">Weights</button>
-        </div>
-        <div data-hpanel="anchors">
-          <p class="muted" data-i18n="anchorsHint">Save work / family points, then compare district drive times.</p>
-          <button type="button" id="housing-place-anchor" class="btn primary" data-i18n="placeAnchor">Place anchor on map</button>
-          <ul id="housing-anchors-list" class="housing-list"></ul>
-        </div>
-        <div data-hpanel="compare" class="hidden">
-          <div class="housing-filters">
-            <label><input type="checkbox" id="filter-shortlist" /> <span data-i18n="filterShortlist">Shortlist only</span></label>
-            <label><input type="checkbox" id="filter-has-offers" /> <span data-i18n="filterHasOffers">Offers with listing/price</span></label>
-            <label><span data-i18n="filterMinScore">Min score</span> <input type="number" id="filter-minscore" min="0" max="10" value="0" /></label>
-            <label><span data-i18n="filterMaxCommute">Max commute (min)</span> <input type="number" id="filter-maxcommute" min="0" value="0" /></label>
-          </div>
-          <button type="button" id="housing-refresh-compare" class="btn primary" data-i18n="refreshCompare">Refresh compare</button>
-          <button type="button" id="housing-export" class="btn ghost" data-i18n="exportCsv">Export CSV</button>
-          <div id="housing-compare"></div>
-        </div>
-        <div data-hpanel="offers" class="hidden">
-          <button type="button" id="housing-add-offer" class="btn primary" data-i18n="addOffer">Add offer at map center</button>
-          <div class="otodom-box">
-            <div class="otodom-filters">
-              <label>
-                <span data-i18n="otodomPriceMax">Price max (zł)</span>
-                <input type="number" id="otodom-price-max" min="0" step="10000" value="650000" />
-              </label>
-              <label>
-                <span data-i18n="otodomAreaMin">Area min (m²)</span>
-                <input type="number" id="otodom-area-min" min="0" step="1" value="50" />
-              </label>
-            </div>
-            <fieldset class="otodom-rooms">
-              <legend data-i18n="otodomRooms">Rooms</legend>
-              <label><input type="checkbox" name="otodom-room" value="TWO" checked /> 2</label>
-              <label><input type="checkbox" name="otodom-room" value="THREE" checked /> 3</label>
-              <label><input type="checkbox" name="otodom-room" value="FOUR" checked /> 4</label>
-              <label><input type="checkbox" name="otodom-room" value="FIVE" checked /> 5</label>
-              <label><input type="checkbox" name="otodom-room" value="SIX_OR_MORE" checked /> 6+</label>
-            </fieldset>
-            <label class="otodom-toggle">
-              <input type="checkbox" id="otodom-show" />
-              <span data-i18n="otodomShow">Show Otodom pins on map</span>
+      <aside id="offers-panel" class="housing-panel">
+        <button type="button" id="otodom-refresh" class="btn primary" data-i18n="updateOffers">Update offers</button>
+        <div class="otodom-box">
+          <div class="otodom-filters">
+            <label>
+              <span data-i18n="otodomPriceMax">Price max (zł)</span>
+              <input type="number" id="otodom-price-max" min="0" step="10000" value="650000" />
             </label>
-            <p id="otodom-status" class="muted otodom-status" data-i18n="otodomHint">Uses the locked city. Enable pins, then pan the map. First load may take a minute. Personal use only.</p>
+            <label>
+              <span data-i18n="otodomAreaMin">Area min (m²)</span>
+              <input type="number" id="otodom-area-min" min="0" step="1" value="50" />
+            </label>
           </div>
-          <ul id="housing-offers-list" class="housing-list"></ul>
+          <fieldset class="otodom-rooms">
+            <legend data-i18n="otodomRooms">Rooms</legend>
+            <label><input type="checkbox" name="otodom-room" value="TWO" checked /> 2</label>
+            <label><input type="checkbox" name="otodom-room" value="THREE" checked /> 3</label>
+            <label><input type="checkbox" name="otodom-room" value="FOUR" checked /> 4</label>
+            <label><input type="checkbox" name="otodom-room" value="FIVE" checked /> 5</label>
+            <label><input type="checkbox" name="otodom-room" value="SIX_OR_MORE" checked /> 6+</label>
+          </fieldset>
+          <label class="otodom-toggle">
+            <input type="checkbox" id="otodom-show" />
+            <span data-i18n="otodomShow">Show Otodom pins on map</span>
+          </label>
+          <p id="otodom-status" class="muted otodom-status" data-i18n="otodomHint">Shared cache for this city + filters. Enable pins to show; Update offers refreshes from Otodom for everyone.</p>
         </div>
-        <div data-hpanel="finalists" class="hidden">
-          <div id="housing-finalists"></div>
-        </div>
-        <div data-hpanel="weights" class="hidden">
-          <p class="muted" data-i18n="weightsHint">Weights for district ranking (relative).</p>
-          <label>Commute <input type="number" id="w-commute" min="0" max="100" /></label>
-          <label>Quiet <input type="number" id="w-quiet" min="0" max="100" /></label>
-          <label>Price <input type="number" id="w-price" min="0" max="100" /></label>
-          <label>Green <input type="number" id="w-green" min="0" max="100" /></label>
-          <label>Comfort <input type="number" id="w-comfort" min="0" max="100" /></label>
-          <button type="button" id="housing-save-weights" class="btn primary" data-i18n="save">Save</button>
-        </div>
+        <ul id="housing-offers-list" class="housing-list"></ul>
       </aside>
     </main>
     <aside id="sheet" class="sheet sheet-half">
@@ -158,7 +120,6 @@
         <div id="sheet-meta" class="sheet-meta"></div>
       </div>
       <div class="sheet-body">
-        <div id="housing-district-slot"></div>
         <ul id="notes-list" class="notes-list"></ul>
       </div>
     </aside>
@@ -221,6 +182,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/js/app.js?v=otodom2"></script>
+  <script type="module" src="/js/app.js?v=otodom5"></script>
 </body>
 </html>

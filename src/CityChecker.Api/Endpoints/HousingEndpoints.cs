@@ -209,7 +209,7 @@ public static class HousingEndpoints
                 new VisitDto(v.VisitId, v.DistrictId, v.VisitedAt, v.EveningFeel, v.Daylight, v.DogWalk, v.SaturdayLife, v.WinterFeel, v.Notes));
         });
 
-        // --- Otodom map pins (transient overlay; personal-use Next.js data proxy) ---
+        // --- Otodom map pins (shared DB cache; Refresh scrapes Otodom) ---
         g.MapPost("/otodom/pins", async (
             OtodomPinsRequest body,
             ClaimsPrincipal user,
@@ -220,22 +220,27 @@ public static class HousingEndpoints
             if (uid is null) return Results.Unauthorized();
             if (body.East <= body.West || body.North <= body.South)
                 return Results.BadRequest(new { error = "Invalid bbox." });
-            if (body.CityId is null && string.IsNullOrWhiteSpace(body.SearchUrl))
-                return Results.BadRequest(new { error = "cityId or searchUrl required." });
+            if (body.CityId is null)
+                return Results.BadRequest(new { error = "cityId required." });
 
-            var result = await otodom.GetPinsAsync(
-                new OtodomPinsQuery(
-                    body.CityId,
-                    body.PriceMax,
-                    body.AreaMin,
-                    body.Rooms,
-                    body.Transaction,
-                    body.West,
-                    body.South,
-                    body.East,
-                    body.North,
-                    body.SearchUrl),
-                ct);
+            var result = await otodom.GetCachedPinsAsync(ToQuery(body), ct);
+            return Results.Ok(result);
+        });
+
+        g.MapPost("/otodom/pins/refresh", async (
+            OtodomPinsRequest body,
+            ClaimsPrincipal user,
+            OtodomMapService otodom,
+            CancellationToken ct) =>
+        {
+            var uid = user.GetUserId();
+            if (uid is null) return Results.Unauthorized();
+            if (body.East <= body.West || body.North <= body.South)
+                return Results.BadRequest(new { error = "Invalid bbox." });
+            if (body.CityId is null)
+                return Results.BadRequest(new { error = "cityId required." });
+
+            var result = await otodom.RefreshPinsAsync(ToQuery(body), ct);
             return Results.Ok(result);
         });
 
@@ -531,6 +536,18 @@ public static class HousingEndpoints
         o.ReminderAt = body.ReminderAt;
         o.ReminderNote = body.ReminderNote;
     }
+
+    static OtodomPinsQuery ToQuery(OtodomPinsRequest body) => new(
+        body.CityId,
+        body.PriceMax,
+        body.AreaMin,
+        body.Rooms,
+        body.Transaction,
+        body.West,
+        body.South,
+        body.East,
+        body.North,
+        body.SearchUrl);
 }
 
 public record AnchorDto(Guid AnchorId, string Label, double Lat, double Lon, int SortOrder);

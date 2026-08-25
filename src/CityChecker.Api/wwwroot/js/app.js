@@ -1,6 +1,6 @@
 import { api, getToken, setToken, clearToken, isTokenExpired } from "./api.js";
 import { applyI18n, t, toggleLang } from "./i18n.js";
-import { initHousing, housingMapClick, enrichDistrictSheet } from "./housing.js";
+import { initHousing } from "./housing.js";
 import { createRuVoiceInput, isVoiceInputSupported } from "./voice-input.js";
 
 const ZOOM_CITY = 10;
@@ -77,7 +77,7 @@ const els = {
   authGate: document.getElementById("auth-gate"),
   app: document.getElementById("app"),
   authError: document.getElementById("auth-error"),
-  zoomMode: document.getElementById("zoom-mode"),
+  zoomMode: null,
   sheet: document.getElementById("sheet"),
   sheetTitle: document.getElementById("sheet-title"),
   sheetMeta: document.getElementById("sheet-meta"),
@@ -583,7 +583,6 @@ async function clearSelection() {
   selectedDistrictId = null;
   applyDistrictStyles();
   context = { level: "City", cityId: lockedCityId, title: lockedCityName() };
-  document.getElementById("housing-district-slot").innerHTML = "";
   setSheetSnap("peek");
   await refreshSheet();
 }
@@ -801,10 +800,7 @@ function initLocateMe() {
 }
 
 function updateZoomLabel() {
-  if (!map) return;
-  const mode = currentMode(map.getZoom());
-  const key = mode === "city" ? "modeCity" : mode === "district" ? "modeDistrict" : "modeBuilding";
-  els.zoomMode.textContent = t(key);
+  // zoom level label removed from topbar (was City/District/Building level)
 }
 
 function requireAuthOrGate() {
@@ -1077,7 +1073,6 @@ async function enterCity(city, { persist = true } = {}) {
 
   lockedCityId = city.cityId;
   selectedDistrictId = null;
-  mapShortlistIds = null;
   cancelPointMove();
   buildingLayer.clearLayers();
   userLocationLayer.clearLayers();
@@ -1095,7 +1090,6 @@ async function enterCity(city, { persist = true } = {}) {
   map.setMinZoom(LOCKED_MIN_ZOOM);
 
   context = { level: "City", cityId: city.cityId, title: city.name };
-  document.getElementById("housing-district-slot").innerHTML = "";
   updateCityTabLabel(city);
   updateZoomLabel();
 
@@ -1163,10 +1157,6 @@ function initMap() {
     map,
     getActiveCityId: () => activeCityId,
     getContext: () => context,
-    onMapFilterChange: (ids) => {
-      mapShortlistIds = ids ? new Set(ids.map(String)) : null;
-      applyDistrictStyles();
-    },
   });
 }
 
@@ -1237,27 +1227,12 @@ function districtIdOf(feature) {
   return feature?.properties?.districtId || feature?.properties?.id || null;
 }
 
-/** @type {Set<string>|null} */
-let mapShortlistIds = null;
-
+/** District polygon styling (selected vs others). */
 function districtBaseStyle(feature, interactive) {
   const id = districtIdOf(feature);
   const selected = selectedDistrictId != null && id === selectedDistrictId;
   const dimOthers = selectedDistrictId != null && !selected;
-  const filteredOut = mapShortlistIds != null && id != null && !mapShortlistIds.has(String(id));
   const fill = districtFillColor(feature);
-
-  if (filteredOut) {
-    return {
-      color: "#b0bec5",
-      weight: 0.8,
-      fillColor: fill,
-      fillOpacity: 0.06,
-      opacity: 0.25,
-      lineJoin: "round",
-      className: "district-poly district-filtered-out",
-    };
-  }
 
   if (selected) {
     return {
@@ -1504,11 +1479,9 @@ async function selectPointNote(n) {
     radiusMeters: n.radiusMeters || DEFAULT_POINT_RADIUS,
     title: t("pointNote"),
   };
-  document.getElementById("housing-district-slot").innerHTML = "";
   if (n.targetDistrictId) {
     selectedDistrictId = n.targetDistrictId;
     applyDistrictStyles();
-    await enrichDistrictSheet(n.targetDistrictId, document.getElementById("housing-district-slot"));
   } else {
     selectedDistrictId = null;
     applyDistrictStyles();
@@ -1529,7 +1502,6 @@ async function placeNewPointNote(latlng) {
     radiusMeters: DEFAULT_POINT_RADIUS,
     title: `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`,
   };
-  document.getElementById("housing-district-slot").innerHTML = "";
   openNoteForm();
 }
 
@@ -1594,7 +1566,6 @@ async function onMapClick(e) {
     await commitPointMove(pendingMoveNote, e.latlng);
     return;
   }
-  if (housingMapClick(e.latlng)) return;
   const mode = currentMode(map.getZoom());
   // Shift+click empty map (building zoom): reverse-geocode building. Plain tap: clear selection.
   if (lockedCityId && e.originalEvent?.shiftKey && mode === "building") {
@@ -1640,7 +1611,6 @@ async function selectDistrict(d) {
   };
   setSheetSnap("half");
   await refreshSheet();
-  await enrichDistrictSheet(selectedDistrictId, document.getElementById("housing-district-slot"));
 }
 
 async function selectBuilding(b) {
@@ -1655,24 +1625,6 @@ async function selectBuilding(b) {
   };
   setSheetSnap("half");
   await refreshSheet();
-  const slot = document.getElementById("housing-district-slot");
-  slot.innerHTML = "";
-  const add = document.createElement("button");
-  add.type = "button";
-  add.className = "btn primary";
-  add.textContent = t("addOfferHere");
-  add.onclick = () => {
-    import("./housing.js").then(({ openOfferAt }) =>
-      openOfferAt({
-        lat: b.lat,
-        lon: b.lon,
-        cityId: b.cityId,
-        districtId: b.districtId,
-        buildingId: b.buildingId,
-        title: b.addressLine,
-      }));
-  };
-  slot.appendChild(add);
 }
 
 async function refreshSheet() {
@@ -1964,7 +1916,6 @@ els.form.addEventListener("submit", async (e) => {
     context.districtId = saved.targetDistrictId;
     selectedDistrictId = saved.targetDistrictId;
     applyDistrictStyles();
-    await enrichDistrictSheet(saved.targetDistrictId, document.getElementById("housing-district-slot"));
   }
   await reloadDistrictColors();
   await loadPointNotes();

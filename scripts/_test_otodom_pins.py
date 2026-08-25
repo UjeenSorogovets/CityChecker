@@ -1,4 +1,4 @@
-"""Smoke-test Otodom pins endpoint against local API."""
+"""Smoke-test Otodom pins DB cache against local API."""
 from __future__ import annotations
 
 import json
@@ -24,11 +24,9 @@ def req(method: str, path: str, body: dict | None = None, token: str | None = No
 
 
 def main() -> None:
-    # homepage
     with urllib.request.urlopen(BASE + "/", timeout=15) as res:
         print("home", res.status)
 
-    # auth
     try:
         _, login = req("POST", "/api/auth/login", {"email": EMAIL, "password": PASSWORD})
     except urllib.error.HTTPError:
@@ -36,7 +34,6 @@ def main() -> None:
     token = login["token"]
     print("auth ok")
 
-    # Łódź filters + city-wide bbox (first load paginates + enriches — can take minutes)
     body = {
         "cityId": "11111111-1111-1111-1111-111111111111",
         "priceMax": 650000,
@@ -48,25 +45,28 @@ def main() -> None:
         "east": 19.7,
         "north": 51.9,
     }
-    status, out = req("POST", "/api/housing/otodom/pins", body, token=token, timeout=300)
-    print("status", status)
-    print(
-        "ok", out.get("ok"),
-        "error", out.get("error"),
-        "pins", len(out.get("pins") or []),
-        "matched", out.get("totalMatched"),
-        "listed", out.get("listed"),
-    )
+
+    status, out = req("POST", "/api/housing/otodom/pins", body, token=token, timeout=30)
+    print("read", status, "ok", out.get("ok"), "status", out.get("status"), "pins", len(out.get("pins") or []))
+
+    if out.get("status") == "Missing" or not (out.get("pins") or []):
+        print("refreshing…")
+        status, out = req("POST", "/api/housing/otodom/pins/refresh", body, token=token, timeout=300)
+        print(
+            "refresh", status,
+            "ok", out.get("ok"),
+            "status", out.get("status"),
+            "pins", len(out.get("pins") or []),
+            "matched", out.get("totalMatched"),
+            "listed", out.get("listed"),
+            "error", out.get("error"),
+        )
+    else:
+        print("cache hit — skip refresh")
+
     pins = out.get("pins") or []
     for p in pins[:3]:
-        print(
-            "sample",
-            p.get("lat"),
-            p.get("lng") or p.get("lon"),
-            p.get("price"),
-            (p.get("title") or "")[:60],
-            p.get("url"),
-        )
+        print("sample", p.get("lat"), p.get("lon"), p.get("price"), (p.get("title") or "")[:50])
 
 
 if __name__ == "__main__":
