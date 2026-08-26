@@ -39,7 +39,7 @@ Mounted read-only into the API container. Needed before first city import:
 | `Granice osiedli.csv` | Łódź district import |
 | `lodz-osiedla-polygons.json` | Łódź polygons |
 | `krakow-districts-polygons.json` | Kraków (auto if empty) |
-| `warszawa-districts-polygons.json` | Warszawa (auto if empty) |
+| `warszawa-districts-polygons.json` | Warszawa 18 dzielnice + 9 suburbs (upsert geoms) |
 | `wroclaw-districts-polygons.json` | Wrocław 48 osiedla (auto if empty) |
 | `gdansk-districts-polygons.json` | Gdańsk 35 dzielnice (auto if empty) |
 | `wind-rose.json` | Environment wind frequencies |

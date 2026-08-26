@@ -28,15 +28,14 @@ public class PolygonDistrictImportService(AppDbContext db, ILogger<PolygonDistri
         using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(path, ct));
         var districts = doc.RootElement.GetProperty("districts");
 
-        var existingCount = await db.Districts.CountAsync(d => d.CityId == cityId, ct);
-        if (existingCount > 0)
-        {
-            logger.LogInformation("City {CityId} already has {Count} districts — skip polygon import", cityId, existingCount);
-            return 0;
-        }
+        // Upsert by name — insert missing; refresh Geom for existing (preserve DistrictIds).
+        var existing = await db.Districts
+            .Where(d => d.CityId == cityId)
+            .ToDictionaryAsync(d => d.Name, StringComparer.OrdinalIgnoreCase, ct);
 
         var now = DateTime.UtcNow;
         var added = 0;
+        var updated = 0;
         foreach (var item in districts.EnumerateArray())
         {
             var name = item.GetProperty("name").GetString()!;
@@ -60,7 +59,17 @@ public class PolygonDistrictImportService(AppDbContext db, ILogger<PolygonDistri
             if (!multi.IsValid)
                 multi = (multi.Buffer(0) as MultiPolygon) ?? ToMulti(multi.Buffer(0)) ?? multi;
 
-            var areaKm2 = multi.Area * Math.Pow(111.32 * Math.Cos(52.0 * Math.PI / 180), 2);
+            var areaKm2 = Math.Round(multi.Area * Math.Pow(111.32 * Math.Cos(52.0 * Math.PI / 180), 2), 3);
+
+            if (existing.TryGetValue(name, out var row))
+            {
+                row.Geom = multi;
+                row.AreaKm2 = areaKm2;
+                row.SourceName = sourceName;
+                row.UpdatedAt = now;
+                updated++;
+                continue;
+            }
 
             db.Districts.Add(new District
             {
@@ -69,16 +78,24 @@ public class PolygonDistrictImportService(AppDbContext db, ILogger<PolygonDistri
                 Name = name,
                 SourceName = sourceName,
                 Geom = multi,
-                AreaKm2 = Math.Round(areaKm2, 3),
+                AreaKm2 = areaKm2,
                 CreatedAt = now,
                 UpdatedAt = now
             });
             added++;
         }
 
+        if (added == 0 && updated == 0)
+        {
+            logger.LogInformation("City {CityId}: nothing to import from {Path}", cityId, path);
+            return 0;
+        }
+
         await db.SaveChangesAsync(ct);
-        logger.LogInformation("Imported {Added} districts for city {CityId} from {Path}", added, cityId, path);
-        return added;
+        logger.LogInformation(
+            "City {CityId} from {Path}: added {Added}, updated {Updated}",
+            cityId, path, added, updated);
+        return added + updated;
     }
 
     static MultiPolygon? ToMulti(Geometry g) => g switch
