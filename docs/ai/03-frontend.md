@@ -24,6 +24,7 @@ SPA: `src/CityChecker.Api/wwwroot/` — no bundler. Entry: `index.html` loads `a
 ## City lock
 
 - One city: `localStorage` `cc_city_id`  
+- Last map view: `localStorage` `cc_map_view` = `{ cityId, lat, lon, zoom }` — restored on re-enter / login (same browser); saved debounced on move/zoom while locked  
 - `lockedCityId`; after centering call `setMinZoom(11)` (`LOCKED_MIN_ZOOM`)  
 - First visit: `#city-picker` overlay; later: left-edge `#city-drawer`  
 

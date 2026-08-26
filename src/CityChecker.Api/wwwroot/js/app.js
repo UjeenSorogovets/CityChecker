@@ -8,6 +8,7 @@ const ZOOM_DISTRICT = 14;
 const ZOOM_INTO_DISTRICT = 12;
 const LOCKED_MIN_ZOOM = 11;
 const CITY_STORAGE_KEY = "cc_city_id";
+const MAP_VIEW_KEY = "cc_map_view";
 const MAP_MODE_KEY = "cc_map_mode";
 const POLAND_CENTER = [52.1, 19.4];
 // Tight mainland Poland frame (Leaflet [lat, lon])
@@ -989,6 +990,55 @@ function saveCityId(cityId) {
   localStorage.setItem(CITY_STORAGE_KEY, cityId);
 }
 
+function loadMapView() {
+  try {
+    const raw = localStorage.getItem(MAP_VIEW_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    const lat = Number(v?.lat);
+    const lon = Number(v?.lon);
+    const zoom = Number(v?.zoom);
+    const cityId = v?.cityId;
+    if (!cityId || !Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(zoom)) return null;
+    return {
+      cityId: String(cityId),
+      lat,
+      lon,
+      zoom: Math.min(19, Math.max(LOCKED_MIN_ZOOM, zoom)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveMapView() {
+  if (!map || !lockedCityId) return;
+  const c = map.getCenter();
+  const zoom = map.getZoom();
+  if (!c || !Number.isFinite(c.lat) || !Number.isFinite(c.lng) || !Number.isFinite(zoom)) return;
+  localStorage.setItem(
+    MAP_VIEW_KEY,
+    JSON.stringify({
+      cityId: lockedCityId,
+      lat: c.lat,
+      lon: c.lng,
+      zoom: Math.min(19, Math.max(LOCKED_MIN_ZOOM, zoom)),
+    }),
+  );
+}
+
+function resolveEnterView(city) {
+  const saved = loadMapView();
+  if (saved && saved.cityId === city.cityId) {
+    return { lat: saved.lat, lon: saved.lon, zoom: saved.zoom };
+  }
+  return {
+    lat: Number(city.centerLat),
+    lon: Number(city.centerLon),
+    zoom: ZOOM_INTO_DISTRICT,
+  };
+}
+
 function showCityPicker() {
   const overlay = document.getElementById("city-picker");
   const list = document.getElementById("city-picker-list");
@@ -1064,8 +1114,8 @@ async function enterCity(city, { persist = true } = {}) {
   if (!map || !city) return;
   if (persist) saveCityId(city.cityId);
 
-  const lat = Number(city.centerLat);
-  const lon = Number(city.centerLon);
+  const view = resolveEnterView(city);
+  const { lat, lon, zoom } = view;
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
     console.error("enterCity: invalid center", city);
     return;
@@ -1086,7 +1136,7 @@ async function enterCity(city, { persist = true } = {}) {
   // Move to the city FIRST, then raise minZoom. Raising minZoom while still on
   // Poland-center would clamp zoom to 11 over the wrong place.
   map.setMinZoom(6);
-  map.setView([lat, lon], ZOOM_INTO_DISTRICT, { animate: false });
+  map.setView([lat, lon], zoom, { animate: false });
   map.setMinZoom(LOCKED_MIN_ZOOM);
 
   context = { level: "City", cityId: city.cityId, title: city.name };
@@ -1102,7 +1152,8 @@ async function enterCity(city, { persist = true } = {}) {
   // Picker overlay was covering the map — size/center can be wrong until layout settles.
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   map.invalidateSize();
-  map.setView([lat, lon], ZOOM_INTO_DISTRICT, { animate: false });
+  map.setView([lat, lon], zoom, { animate: false });
+  saveMapView();
 
   await refreshSheet();
   setSheetSnap("half");
@@ -1192,6 +1243,7 @@ async function onZoomOrMove() {
   }
   updateZoomLabel();
   if (!lockedCityId) return;
+  saveMapView();
 
   const mode = currentMode(map.getZoom());
   // Locked to one city — never clear districts or show Poland city markers
