@@ -14,6 +14,7 @@ let otodomEnabled = false;
 let otodomTimer = null;
 let otodomGen = 0;
 let offersAllowed = false;
+let isUpdateOffers = false;
 
 export function initHousing(options) {
   ctx = options;
@@ -26,13 +27,18 @@ async function setupOffersAccess() {
   try {
     const access = await api("/api/housing/offers-access");
     offersAllowed = !!access?.allowed;
+    isUpdateOffers = !!access?.isUpdateOffers;
   } catch {
     offersAllowed = false;
+    isUpdateOffers = false;
   }
   if (!offersAllowed) {
     document.getElementById("offers-toggle")?.classList.add("hidden");
     document.getElementById("offers-panel")?.classList.add("hidden");
     return;
+  }
+  if (!isUpdateOffers) {
+    document.getElementById("otodom-refresh")?.classList.add("hidden");
   }
   wireUi();
   refreshOffers();
@@ -78,6 +84,7 @@ function wireUi() {
     scheduleOtodomReload(true);
   });
   document.getElementById("otodom-refresh")?.addEventListener("click", () => {
+    if (!isUpdateOffers) return;
     const show = document.getElementById("otodom-show");
     if (show && !show.checked) {
       show.checked = true;

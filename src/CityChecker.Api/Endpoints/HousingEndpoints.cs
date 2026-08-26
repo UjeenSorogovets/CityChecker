@@ -214,7 +214,11 @@ public static class HousingEndpoints
         {
             if (user.GetUserId() is null) return Results.Unauthorized();
             var email = await user.ResolveUserEmailAsync(db);
-            return Results.Ok(new { allowed = OffersAccess.IsAllowed(config, email) });
+            return Results.Ok(new
+            {
+                allowed = OffersAccess.IsAllowed(config, email),
+                isUpdateOffers = OffersAccess.IsUpdateOffersEnabled(config),
+            });
         });
 
         g.MapPost("/otodom/pins", async (
@@ -244,6 +248,8 @@ public static class HousingEndpoints
             CancellationToken ct) =>
         {
             if (await user.EnsureOffersAccessAsync(db, config) is { } denied) return denied;
+            if (!OffersAccess.IsUpdateOffersEnabled(config))
+                return Results.Json(new { error = "Updating offers is disabled." }, statusCode: 403);
             if (body.East <= body.West || body.North <= body.South)
                 return Results.BadRequest(new { error = "Invalid bbox." });
             if (body.CityId is null)

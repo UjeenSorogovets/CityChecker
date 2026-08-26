@@ -41,6 +41,7 @@
 - Failed refresh returns `ok: false`, `status: "Failed"`, and a plain-language `error` (e.g. HTTP 403 anti-bot on VPS) — not `ok: true` with a cryptic status code only  
 - Cached pins store **no real listing title/URL** — only price, m², numeric rooms (`2`, `3`, `6+`); re-scrape applies same rules. One-off backfill: `python scripts/anonymize_otodom_pins.py` (add `--prod` on VPS)  
 - **Offers allowlist:** set `Offers__AllowedEmails` / `OFFERS_ALLOWED_EMAILS` (comma-separated). Empty list = nobody sees Offers/Otodom. Google users need re-login after deploy to get `email` in JWT  
+- **`Offers:IsUpdateOffers`** (env `OFFERS_IS_UPDATE_OFFERS`, default `false`) — hides Update offers button and blocks `/otodom/pins/refresh` even for allowlisted users  
 - Stale-on-error: failed Refresh keeps previous pins and sets `Failed`  
 - Excluded from backups (regenerable) — Refresh after restore  
 - Pin locations are often **approximate** (Otodom map radius)  

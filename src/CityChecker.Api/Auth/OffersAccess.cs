@@ -19,4 +19,8 @@ public static class OffersAccess
         if (allowed.Count == 0) return false;
         return allowed.Contains(PasswordAuth.NormalizeEmail(email));
     }
+
+    /// <summary>When false (default), hide Update offers and block refresh scrape.</summary>
+    public static bool IsUpdateOffersEnabled(IConfiguration config) =>
+        bool.TryParse(config["Offers:IsUpdateOffers"], out var on) && on;
 }
