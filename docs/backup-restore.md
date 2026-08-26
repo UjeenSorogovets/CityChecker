@@ -28,18 +28,12 @@ citychecker-backup-.../
 
 ## Backup
 
-**Windows:**
-
-```powershell
-.\scripts\backup.ps1
-```
-
-**Linux / VPS (use `--prod` on the real server):**
-
 ```bash
 ./scripts/backup.sh
-./scripts/backup.sh --prod
+./scripts/backup.sh --prod   # on the real server
 ```
+
+On Windows use Git Bash / WSL (scripts are LF via `.gitattributes`).
 
 Copy the archive off the server, and keep `.env` separately:
 
@@ -62,8 +56,6 @@ scp root@ujeen.pl:/opt/CityChecker/.env .env.prod.backup
 ./scripts/restore.sh backups/citychecker-backup-YYYYMMDD-HHMM.tar.gz
 ./scripts/restore.sh backups/citychecker-backup-YYYYMMDD-HHMM.tar.gz --prod
 ```
-
-**Windows:** `.\scripts\restore.ps1 backups\citychecker-backup-....tar.gz`
 
 After restore:
 

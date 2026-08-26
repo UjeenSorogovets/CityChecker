@@ -18,6 +18,14 @@ First time: sign up with email/password. More: [docs/local-dev.md](docs/local-de
 
 ## Production update
 
+From your PC (after push to `main`):
+
+```bash
+python scripts/deploy.py
+```
+
+Or on the VPS:
+
 ```bash
 ssh root@ujeen.pl
 cd /opt/CityChecker

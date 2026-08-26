@@ -71,10 +71,8 @@ CityChecker/
 │   ├── Dtos/Dtos.cs
 │   └── wwwroot/               # index.html, css/, js/
 ├── DataImports/               # CSV + polygon JSON + wind/pollution (Docker mount ro)
-├── scripts/                   # backup/restore, remote.py (SSH probe)
-├── tools/
-│   ├── citychecker_mcp/       # Cursor MCP server (stdio → local API)
-│   └── shot_env.py            # Playwright screenshot helper (Environment mode)
+├── scripts/                   # backup/restore (.sh), remote.py, deploy.py
+├── tools/citychecker_mcp/     # Cursor MCP server (stdio → local API)
 ├── backups/                   # gitignored archives
 ├── docs/                      # Human ops
 ├── docs/ai/                   # This folder
@@ -85,7 +83,7 @@ CityChecker/
 ├── docker-compose.prod.yml
 ├── Caddyfile.prod
 ├── run.ps1 / run.sh             # Local foreground compose
-├── run-prod.ps1 / run-prod.sh   # Prod detached compose
+├── run-prod.sh                  # On-server prod compose (prefer deploy.py from PC)
 ├── AGENTS.md                    # Short AI pointer
 └── README.md                    # Short human commands
 ```

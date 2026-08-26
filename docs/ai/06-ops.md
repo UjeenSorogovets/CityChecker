@@ -15,6 +15,15 @@ Host API without Docker: start `db` service only, then `dotnet run --project src
 
 ## Prod deploy
 
+From workstation (push to `main` first):
+
+```bash
+pip install -r scripts/requirements-remote.txt
+python scripts/deploy.py
+```
+
+Or SSH then:
+
 ```bash
 ssh root@ujeen.pl
 cd /opt/CityChecker
@@ -47,7 +56,7 @@ Never print SSH passwords. `--health` checks uptime, disk, compose ps, HTTPS hea
 ./scripts/restore.sh backups/citychecker-backup-YYYYMMDD-HHMM.tar.gz --prod
 ```
 
-Windows: `backup.ps1` / `restore.ps1`.
+Windows: same `.sh` via Git Bash / WSL.
 
 **Bundle:** `postgres.dump` (custom format) + `DataImports/` + `MANIFEST.json`  
 **Excluded tables:** `DistrictEnvironments`, `CityEnvironmentSources`, `OtodomPinSets`, `OtodomPins`, `districts_import_raw`  
@@ -84,15 +93,6 @@ Server: `tools/citychecker_mcp/server.py` (stdio). Env vars:
 
 **Tools:** `health`, `list_cities`, `list_districts`, `get_environment`, `refresh_environment`  
 Cursor server id often: `project-0-CityChecker-citychecker`
-
-## Debug: Environment screenshot
-
-```bash
-pip install playwright && playwright install chromium
-python tools/shot_env.py
-```
-
-Writes `screenshots/lodz-environment.png` + debug JSON (requires local API up).
 
 ## Prod pitfall: host nginx vs Caddy
 

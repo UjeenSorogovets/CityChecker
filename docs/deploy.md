@@ -30,7 +30,14 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
 curl -sI https://ujeen.pl/
 ```
 
-Or from repo: `./run-prod.sh` / `.\run-prod.ps1`.
+From your workstation (after push to `main`):
+
+```bash
+pip install -r scripts/requirements-remote.txt
+python scripts/deploy.py
+```
+
+On the VPS only: `./run-prod.sh` (same compose rebuild without `git pull`).
 
 Hard-refresh the browser after deploy. Migrations run on API startup; the `pgdata` volume is kept.
 

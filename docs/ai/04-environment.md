@@ -81,6 +81,5 @@ POST /api/admin/refresh-environment/{cityId}
 1. Rebuild API container if backend/wwwroot changed  
 2. Bump `app.js?v=` in `index.html` when fighting browser cache  
 3. Force env refresh if scoring/source logic changed  
-4. Debug screenshot: `python tools/shot_env.py` → `screenshots/lodz-environment.png`  
 
 Backup excludes env cache — refresh after restore. See [../backup-restore.md](../backup-restore.md).
