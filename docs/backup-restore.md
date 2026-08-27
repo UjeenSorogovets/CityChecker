@@ -12,7 +12,7 @@ Portable bundle for moving the app to a new server without losing districts, not
 | `DataImports/` snapshot | Yes (files) |
 | Env risk cache (`DistrictEnvironments`, `CityEnvironmentSources`) | No — recompute |
 | Otodom pin cache (`OtodomPinSets`, `OtodomPins`) | No — Refresh in Offers |
-| OSM building footprints (`OsmBuildingFootprints`) | No — auto-seed on first Wołomin zoom or `POST /api/admin/refresh-building-footprints/{cityId}` |
+| OSM building footprints (`OsmBuildingFootprints`) | No — auto-seed on first Wołomin/Wrocław zoom or `POST /api/admin/refresh-building-footprints/{cityId}` |
 | Import staging `districts_import_raw` | No |
 | `.env` / JWT / Google / SSH secrets | **No** — copy separately |
 

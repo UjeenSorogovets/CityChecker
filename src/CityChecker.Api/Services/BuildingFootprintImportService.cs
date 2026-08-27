@@ -7,14 +7,14 @@ using NetTopologySuite.Geometries;
 
 namespace CityChecker.Api.Services;
 
-// ponytail: one Overpass pull per Wołomin refresh → PostGIS; pan path never hits Overpass.
+// ponytail: Overpass → PostGIS for footprint pilots; pan path never hits Overpass.
 public class BuildingFootprintImportService(
     AppDbContext db,
     HttpClient http,
     ILogger<BuildingFootprintImportService> log)
 {
-    public const string PilotDistrictName = "Wołomin";
-    const int MaxImportFeatures = 50_000;
+    public const string WarszawaPilotDistrictName = "Wołomin";
+    const int MaxImportFeatures = 250_000;
 
     static readonly GeometryFactory Gf =
         NetTopologySuite.NtsGeometryServices.Instance.CreateGeometryFactory(srid: 4326);
@@ -25,15 +25,29 @@ public class BuildingFootprintImportService(
         "https://overpass-api.de/api/interpreter",
     ];
 
-    public async Task<(Guid DistrictId, int Count)> ImportForCityAsync(Guid cityId, CancellationToken ct = default)
+    public static bool SupportsCity(Guid cityId) =>
+        cityId == SeedData.WarszawaId || cityId == SeedData.WroclawId;
+
+    public async Task<(int Count, string Scope)> ImportForCityAsync(Guid cityId, CancellationToken ct = default)
+    {
+        if (cityId == SeedData.WroclawId)
+            return await ImportCityWideAsync(cityId, ct);
+        if (cityId == SeedData.WarszawaId)
+            return await ImportDistrictAsync(cityId, WarszawaPilotDistrictName, ct);
+        throw new InvalidOperationException(
+            $"Building footprints not configured for city {cityId} (Wołomin / Wrocław only).");
+    }
+
+    async Task<(int Count, string Scope)> ImportDistrictAsync(
+        Guid cityId, string districtName, CancellationToken ct)
     {
         var district = await db.Districts.AsNoTracking()
-            .FirstOrDefaultAsync(d => d.CityId == cityId && d.Name == PilotDistrictName, ct)
-            ?? throw new InvalidOperationException($"District '{PilotDistrictName}' not found for city {cityId}.");
+            .FirstOrDefaultAsync(d => d.CityId == cityId && d.Name == districtName, ct)
+            ?? throw new InvalidOperationException($"District '{districtName}' not found for city {cityId}.");
 
         var env = district.Geom.EnvelopeInternal;
         var elements = await FetchOverpassAsync(env.MinY, env.MinX, env.MaxY, env.MaxX, ct);
-        log.LogInformation("Wołomin footprint import: {Count} Overpass elements", elements.Count);
+        log.LogInformation("{District} footprint import: {Count} Overpass elements", districtName, elements.Count);
 
         var now = DateTime.UtcNow;
         var rows = new List<OsmBuildingFootprint>();
@@ -45,18 +59,7 @@ public class BuildingFootprintImportService(
                 continue;
             if (!district.Geom.Intersects(geom))
                 continue;
-            rows.Add(new OsmBuildingFootprint
-            {
-                OsmBuildingFootprintId = Guid.NewGuid(),
-                CityId = cityId,
-                DistrictId = district.DistrictId,
-                OsmType = osmType!,
-                OsmId = osmId,
-                Name = name,
-                Addr = addr,
-                Geom = geom,
-                ImportedAt = now,
-            });
+            rows.Add(NewRow(cityId, district.DistrictId, osmType!, osmId, name, addr, geom, now));
         }
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -65,10 +68,77 @@ public class BuildingFootprintImportService(
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
-        log.LogInformation("Wołomin footprint import saved {Count} polygons for district {DistrictId}",
-            rows.Count, district.DistrictId);
-        return (district.DistrictId, rows.Count);
+        log.LogInformation("{District} footprint import saved {Count} polygons", districtName, rows.Count);
+        return (rows.Count, districtName);
     }
+
+    // ponytail: per-osiedle Overpass — whole-city bbox often times out. Ceiling: ~48 calls; upgrade: grid tiles.
+    async Task<(int Count, string Scope)> ImportCityWideAsync(Guid cityId, CancellationToken ct)
+    {
+        var districts = await db.Districts.AsNoTracking()
+            .Where(d => d.CityId == cityId)
+            .ToListAsync(ct);
+        if (districts.Count == 0)
+            throw new InvalidOperationException($"No districts for city {cityId}.");
+
+        var now = DateTime.UtcNow;
+        var byOsm = new Dictionary<(string Type, long Id), OsmBuildingFootprint>();
+        foreach (var district in districts)
+        {
+            ct.ThrowIfCancellationRequested();
+            var env = district.Geom.EnvelopeInternal;
+            var elements = await FetchOverpassAsync(env.MinY, env.MinX, env.MaxY, env.MaxX, ct);
+            log.LogInformation(
+                "Wrocław footprint import district {Name}: {Count} Overpass elements (total unique {Unique})",
+                district.Name, elements.Count, byOsm.Count);
+
+            foreach (var el in elements)
+            {
+                if (byOsm.Count >= MaxImportFeatures) break;
+                if (!TryParseBuilding(el, out var osmType, out var osmId, out var name, out var addr, out var geom)
+                    || geom is null)
+                    continue;
+                if (!district.Geom.Intersects(geom))
+                    continue;
+                var key = (osmType!, osmId);
+                if (byOsm.ContainsKey(key)) continue;
+                byOsm[key] = NewRow(cityId, district.DistrictId, osmType!, osmId, name, addr, geom, now);
+            }
+
+            if (byOsm.Count >= MaxImportFeatures)
+            {
+                log.LogWarning("Wrocław footprint import hit MaxImportFeatures={Max}", MaxImportFeatures);
+                break;
+            }
+        }
+
+        var rows = byOsm.Values.ToList();
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.OsmBuildingFootprints.Where(f => f.CityId == cityId).ExecuteDeleteAsync(ct);
+        db.OsmBuildingFootprints.AddRange(rows);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+
+        log.LogInformation("Wrocław footprint import saved {Count} polygons across {Districts} districts",
+            rows.Count, districts.Count);
+        return (rows.Count, "Wrocław");
+    }
+
+    static OsmBuildingFootprint NewRow(
+        Guid cityId, Guid districtId, string osmType, long osmId,
+        string? name, string? addr, MultiPolygon geom, DateTime now) =>
+        new()
+        {
+            OsmBuildingFootprintId = Guid.NewGuid(),
+            CityId = cityId,
+            DistrictId = districtId,
+            OsmType = osmType,
+            OsmId = osmId,
+            Name = name,
+            Addr = addr,
+            Geom = geom,
+            ImportedAt = now,
+        };
 
     async Task<List<JsonElement>> FetchOverpassAsync(
         double minLat, double minLon, double maxLat, double maxLon, CancellationToken ct)

@@ -55,8 +55,8 @@ public static class AdminEndpoints
             if (user.EnsureOwner(config) is { } err) return err;
             try
             {
-                var (districtId, count) = await importer.ImportForCityAsync(cityId, ct);
-                return Results.Ok(new { districtId, count });
+                var (count, scope) = await importer.ImportForCityAsync(cityId, ct);
+                return Results.Ok(new { scope, count });
             }
             catch (Exception ex)
             {

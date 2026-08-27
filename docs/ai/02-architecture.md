@@ -49,7 +49,7 @@
 | `MapAnchors`, `DistrictPicks`, `DistrictVisits`, `HousingOffers`, `DecisionProfiles` | Decide / housing |
 | `DistrictEnvironments`, `CityEnvironmentSources` | Environment cache (~7 days, regenerable) |
 | `OtodomPinSets`, `OtodomPins` | Shared Otodom overlay cache (filter-keyed; Refresh scrapes) |
-| `OsmBuildingFootprints` | Wołomin OSM polygons (regenerable; Overpass on import/admin refresh) |
+| `OsmBuildingFootprints` | Wołomin + Wrocław OSM polygons (regenerable; Overpass on import/admin refresh) |
 | `districts_import_raw` | Transient Łódź CSV staging |
 
 **Offers access:** `Offers:AllowedEmails` (comma-separated, case-insensitive). Empty = deny all. Checked on `/api/housing/offers*`, `/api/housing/otodom/*`. JWT may carry `email` claim (login/register/Google); password users also resolved via `Users` table.  
@@ -63,7 +63,7 @@
 | Auth | `AuthEndpoints.cs` | `POST /api/auth/register`, `POST /api/auth/login` |
 | Cities | `CityEndpoints.cs` | `GET /api/cities`, `GET /api/cities/{id}`, `GET /api/cities/{id}/environment` |
 | Districts | `CityEndpoints.cs` (`DistrictEndpoints`) | `GET /api/cities/{cityId}/districts`, `…/geojson`, `GET /api/districts/{id}` |
-| Buildings | `BuildingEndpoints.cs` | `GET /api/cities/{cityId}/buildings?bbox=…`, `GET …/building-footprints` (Wołomin from PostGIS `OsmBuildingFootprints`; auto-seed Overpass once if empty), `POST /api/buildings/reverse-geocode` |
+| Buildings | `BuildingEndpoints.cs` | `GET /api/cities/{cityId}/buildings?bbox=…`, `GET …/building-footprints` (Wołomin + Wrocław from PostGIS `OsmBuildingFootprints`; auto-seed Overpass once if empty), `POST /api/buildings/reverse-geocode` |
 | Notes | `NoteEndpoints.cs` | `GET/POST/PUT/DELETE /api/notes` (+ filters) |
 | Aggregates | `AggregateEndpoints.cs` | `/api/aggregates/city|district|building/{id}`, **`GET /api/cities/{cityId}/aggregates`** (batch) |
 | Housing | `HousingEndpoints.cs` | `/api/housing/*` — anchors, commute, picks, probe, visits, offers, **`POST /otodom/pins`**, **`POST /otodom/pins/refresh`**, profile, compare, finalists, `export.csv` |
@@ -78,8 +78,8 @@
 | `LodzDistrictImportService` | Scoped | CSV + polygons → `Districts` |
 | `PolygonDistrictImportService` | Scoped | KR/WA GeoJSON → `Districts` |
 | `EnvironmentService` | `AddHttpClient<>` (scoped) | Overpass + wind + curated JSON → env cache |
-| `BuildingFootprintService` | Scoped | Bbox query on `OsmBuildingFootprints` (Wołomin) |
-| `BuildingFootprintImportService` | `AddHttpClient<>` (scoped) | Overpass → replace Wołomin rows; admin refresh / one-shot seed |
+| `BuildingFootprintService` | Scoped | Bbox query on `OsmBuildingFootprints` (Wołomin / Wrocław) |
+| `BuildingFootprintImportService` | `AddHttpClient<>` (scoped) | Overpass → replace Wołomin or city-wide Wrocław rows; admin refresh / one-shot seed |
 | `OtodomMapService` | `AddHttpClient<>` + memory cache (buildId/coords) | Shared DB pin sets; Refresh scrapes Otodom Next.js data |
 | `HousingGeoService` | HttpClient | OSRM commute + Overpass amenity probe |
 | `NominatimClient` | HttpClient | Reverse geocode |
