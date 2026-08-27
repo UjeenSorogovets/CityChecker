@@ -227,7 +227,9 @@ function setMapMode(mode) {
 function ensureRiskPane() {
   if (!map) return;
   if (!map.getPane("risk")) {
-    const pane = map.createPane("risk");
+    // Parent rotatePane so env rings follow map bearing (default mapPane = norotate sibling)
+    const parent = map._rotatePane || map.getPane("mapPane");
+    const pane = map.createPane("risk", parent);
     pane.style.zIndex = 650; // above markers (~600) so rings/dots aren't under district UI
   }
   map.getPane("risk").style.pointerEvents = "auto";
@@ -706,22 +708,26 @@ function initResetNorth() {
   if (!btn || !map || btn.dataset.wired) return;
   btn.dataset.wired = "1";
 
+  // leaflet-rotate 0.2.8 only fires "rotate" (no rotatestart/rotateend) — debounce idle to unhide
+  let rotateHideTimer = null;
   const setRotating = (on) => {
     map.getContainer().classList.toggle("map-rotating", on);
   };
 
-  map.on("rotatestart", () => setRotating(true));
   map.on("rotate", () => {
+    setRotating(true);
+    clearTimeout(rotateHideTimer);
+    rotateHideTimer = setTimeout(() => {
+      setRotating(false);
+      updateResetNorthBtn();
+    }, 160);
     applyUserHeading();
-    updateResetNorthBtn();
-  });
-  map.on("rotateend", () => {
-    setRotating(false);
     updateResetNorthBtn();
   });
 
   btn.addEventListener("click", () => {
     if (!map?.setBearing) return;
+    clearTimeout(rotateHideTimer);
     map.setBearing(0);
     setRotating(false);
     applyUserHeading();

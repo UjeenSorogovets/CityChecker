@@ -47,7 +47,7 @@ District GeoJSON loads via `mapAbort`; environment load uses separate **`envLoad
 - **Desktop:** Shift + drag  
 - **Reset north:** `#reset-north-btn` in `#map-fabs` → `map.setBearing(0)`; disabled when bearing ≈ 0  
 - Locate heading cone: `applyUserHeading()` subtracts `map.getBearing()` so direction stays correct when map is rotated  
-- During rotate: class `map-rotating` hides overlay/marker/risk panes (tiles stay) — avoids laggy vectors on phones  
+- During rotate: class `map-rotating` hides overlay/marker/risk panes (tiles stay). leaflet-rotate only fires `rotate` — hide is toggled on that event and cleared after ~160ms idle (no rotatestart/rotateend).  
 - Do not enable built-in `rotateControl` — custom button matches locate/FAB stack  
 
 ## Otodom listings overlay (topbar → Offers)
