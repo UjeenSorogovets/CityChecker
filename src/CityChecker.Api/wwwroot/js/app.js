@@ -23,6 +23,8 @@ let cityLayer = L.layerGroup();
 let districtLayer = null;
 /** @type {L.LayerGroup} */
 let buildingLayer = L.layerGroup();
+/** @type {L.GeoJSON | null} */
+let footprintLayer = null;
 /** @type {L.LayerGroup} */
 let pointLayer = L.layerGroup();
 /** @type {L.LayerGroup} */
@@ -49,6 +51,9 @@ let pendingMoveNote = null;
 /** @type {"comfort"|"environment"} */
 let mapMode = localStorage.getItem(MAP_MODE_KEY) === "environment" ? "environment" : "comfort";
 const DEFAULT_POINT_RADIUS = 50;
+const DEFAULT_BUILDING_RADIUS = 15;
+const MIN_BUILDING_RADIUS = 5;
+const MIN_POINT_RADIUS = 50;
 const MAX_NOTE_PHOTOS = 4;
 /** Coords for the note being created/edited (Point level). */
 let formPointCoords = null;
@@ -64,6 +69,10 @@ const isCoarsePointer = () => window.matchMedia("(pointer: coarse)").matches;
 let mapAbort = null;
 /** Bumps when a newer environment load starts — ignore stale responses. */
 let envLoadGen = 0;
+/** Bumps when a newer Wołomin footprint load starts — ignore stale responses. */
+let footprintLoadGen = 0;
+/** @type {string|null} selected OSM key `way/123` */
+let selectedOsmKey = null;
 let moveTimer = null;
 /** @type {Record<string, number|null>} */
 let districtScores = {};
@@ -201,6 +210,7 @@ function setMapMode(mode) {
   // ponytail: env load is async and can be aborted by district reload — retry on toggle
   if (mapMode === "environment" && lockedCityId) {
     const cityId = lockedCityId;
+    clearBuildingFootprints();
     loadEnvironment(cityId).then(() => {
       if (lockedCityId !== cityId) return;
       applyDistrictStyles();
@@ -209,6 +219,8 @@ function setMapMode(mode) {
     });
   } else if (context?.level === "District") {
     refreshSheet();
+  } else if (mapMode === "comfort" && lockedCityId) {
+    scheduleMapUpdate();
   }
 }
 
@@ -582,6 +594,8 @@ async function clearSelection() {
   if (!lockedCityId) return;
   cancelPointMove();
   selectedDistrictId = null;
+  selectedOsmKey = null;
+  styleBuildingFootprints();
   applyDistrictStyles();
   context = { level: "City", cityId: lockedCityId, title: lockedCityName() };
   setSheetSnap("peek");
@@ -1123,8 +1137,10 @@ async function enterCity(city, { persist = true } = {}) {
 
   lockedCityId = city.cityId;
   selectedDistrictId = null;
+  selectedOsmKey = null;
   cancelPointMove();
   buildingLayer.clearLayers();
+  clearBuildingFootprints();
   userLocationLayer.clearLayers();
   userHeadingEl = null;
   setPlaceNoteFabVisible(true);
@@ -1258,9 +1274,11 @@ async function onZoomOrMove() {
   if (pendingMoveNote) return;
   if (mode === "building") {
     await loadBuildingMarkers();
+    await loadBuildingFootprints();
     await loadPointNotes();
   } else {
     buildingLayer.clearLayers();
+    clearBuildingFootprints();
     await loadPointNotes();
   }
 }
@@ -1422,13 +1440,16 @@ async function loadPointNotes() {
   if (!lockedCityId && !activeCityId) return;
   const cityId = lockedCityId || activeCityId;
   try {
-    const notes = await api(`/api/notes?cityId=${cityId}&level=Point`);
+    const notes = await api(`/api/notes?cityId=${cityId}`);
     pointLayer.clearLayers();
     const dotRadius = isCoarsePointer() ? 8 : 5;
     for (const n of notes) {
       if (n.lat == null || n.lon == null) continue;
+      if (n.level !== "Point" && n.level !== "Building") continue;
       const color = scoreColor(n.scoreOverall);
-      const radius = n.radiusMeters || DEFAULT_POINT_RADIUS;
+      const radius =
+        n.radiusMeters ||
+        (n.level === "Building" ? DEFAULT_BUILDING_RADIUS : DEFAULT_POINT_RADIUS);
       const circle = L.circle([n.lat, n.lon], {
         radius,
         color,
@@ -1522,6 +1543,17 @@ async function commitPointMove(n, latlng) {
 }
 
 async function selectPointNote(n) {
+  if (n.level === "Building" && n.targetBuildingId) {
+    await selectBuilding({
+      buildingId: n.targetBuildingId,
+      cityId: n.targetCityId || lockedCityId || activeCityId,
+      districtId: n.targetDistrictId ?? null,
+      addressLine: t("pointNote"),
+      lat: n.lat,
+      lon: n.lon,
+    });
+    return;
+  }
   context = {
     level: "Point",
     cityId: n.targetCityId || lockedCityId || activeCityId,
@@ -1609,6 +1641,101 @@ async function loadBuildingMarkers() {
   }
 }
 
+function clearBuildingFootprints() {
+  footprintLoadGen++;
+  if (footprintLayer && map) map.removeLayer(footprintLayer);
+  footprintLayer = null;
+}
+
+function osmKeyOf(props) {
+  if (!props?.osmType || props.osmId == null) return null;
+  return `${props.osmType}/${props.osmId}`;
+}
+
+function footprintStyle(feature) {
+  const key = osmKeyOf(feature?.properties);
+  const selected = selectedOsmKey != null && key === selectedOsmKey;
+  return {
+    color: selected ? "#0a5c5c" : "#4a6a72",
+    weight: selected ? 2.5 : 1,
+    fillColor: selected ? "#2a9d8f" : "#6b8f98",
+    fillOpacity: selected ? 0.35 : 0.12,
+    opacity: selected ? 1 : 0.75,
+  };
+}
+
+function styleBuildingFootprints() {
+  if (footprintLayer) footprintLayer.setStyle(footprintStyle);
+}
+
+async function loadBuildingFootprints() {
+  if (!activeCityId || !map || mapMode !== "comfort") {
+    clearBuildingFootprints();
+    return;
+  }
+  const gen = ++footprintLoadGen;
+  const b = map.getBounds();
+  const qs = new URLSearchParams({
+    minLat: String(b.getSouth()),
+    minLon: String(b.getWest()),
+    maxLat: String(b.getNorth()),
+    maxLon: String(b.getEast()),
+  });
+  try {
+    const fc = await api(`/api/cities/${activeCityId}/building-footprints?${qs}`);
+    if (gen !== footprintLoadGen) return;
+    if (footprintLayer && map) map.removeLayer(footprintLayer);
+    footprintLayer = null;
+    if (!fc?.features?.length) return;
+    footprintLayer = L.geoJSON(fc, {
+      style: footprintStyle,
+      onEachFeature: (feature, layer) => {
+        layer.on("click", (e) => {
+          L.DomEvent.stopPropagation(e);
+          onFootprintClick(feature, layer);
+        });
+      },
+    });
+    footprintLayer.addTo(map);
+  } catch {
+    if (gen === footprintLoadGen) {
+      if (footprintLayer && map) map.removeLayer(footprintLayer);
+      footprintLayer = null;
+    }
+  }
+}
+
+async function onFootprintClick(feature, layer) {
+  if (!requireAuthOrGate()) {
+    showAuthError({ message: t("sessionExpired") });
+    return;
+  }
+  if (pendingMoveNote) {
+    await commitPointMove(pendingMoveNote, layer.getBounds().getCenter());
+    return;
+  }
+  selectedOsmKey = osmKeyOf(feature.properties);
+  styleBuildingFootprints();
+  const c = layer.getBounds().getCenter();
+  els.sheetTitle.textContent = t("loading");
+  try {
+    const building = await api("/api/buildings/reverse-geocode", {
+      method: "POST",
+      body: JSON.stringify({ lat: c.lat, lon: c.lng }),
+    });
+    await selectBuilding(building);
+    await refreshCityAggregates(activeCityId || building.cityId);
+    await loadBuildingMarkers();
+  } catch (err) {
+    selectedOsmKey = null;
+    styleBuildingFootprints();
+    els.sheetTitle.textContent = err?.body?.error || err?.message || t("geocodeFail");
+    els.sheetMeta.textContent = t("geocodeHint");
+    els.addNoteBtn.classList.add("hidden");
+    els.notesList.innerHTML = "";
+  }
+}
+
 async function onMapClick(e) {
   if (!requireAuthOrGate()) {
     showAuthError({ message: t("sessionExpired") });
@@ -1674,6 +1801,8 @@ async function selectBuilding(b) {
     districtId: b.districtId,
     buildingId: b.buildingId,
     title: b.addressLine,
+    lat: b.lat,
+    lon: b.lon,
   };
   setSheetSnap("half");
   await refreshSheet();
@@ -1694,7 +1823,8 @@ async function refreshSheet() {
   let notesPath = `/api/notes?cityId=${context.cityId}&level=City`;
   if (context.level === "District") {
     aggPath = `/api/aggregates/district/${context.districtId}`;
-    notesPath = `/api/notes?districtId=${context.districtId}&level=Point`;
+    // Point + Building notes assigned to this district
+    notesPath = `/api/notes?districtId=${context.districtId}`;
   } else if (context.level === "Point") {
     notesPath = `/api/notes?cityId=${context.cityId}&level=Point`;
     aggPath = context.districtId
@@ -1860,6 +1990,8 @@ function openNoteForm(note = null) {
     formPointCoords = { lat: note.lat, lon: note.lon };
   } else if (context?.level === "Point" && context.lat != null && context.lon != null) {
     formPointCoords = { lat: context.lat, lon: context.lon };
+  } else if (context?.level === "Building" && context.lat != null && context.lon != null) {
+    formPointCoords = { lat: context.lat, lon: context.lon };
   } else {
     formPointCoords = null;
   }
@@ -1873,10 +2005,21 @@ function openNoteForm(note = null) {
   document.getElementById("score-safety").value = note?.scoreSafety ?? "";
   const radiusWrap = document.getElementById("note-radius-wrap");
   const radiusInput = document.getElementById("note-radius");
-  const showRadius = formPointCoords != null || note?.level === "Point" || context?.level === "Point";
+  const isBuildingNote =
+    note?.level === "Building" || context?.level === "Building";
+  const showRadius =
+    formPointCoords != null ||
+    note?.level === "Point" ||
+    note?.level === "Building" ||
+    context?.level === "Point" ||
+    context?.level === "Building";
   radiusWrap.classList.toggle("hidden", !showRadius);
   if (showRadius) {
-    radiusInput.value = note?.radiusMeters ?? context?.radiusMeters ?? DEFAULT_POINT_RADIUS;
+    const defR = isBuildingNote ? DEFAULT_BUILDING_RADIUS : DEFAULT_POINT_RADIUS;
+    const minR = isBuildingNote ? MIN_BUILDING_RADIUS : MIN_POINT_RADIUS;
+    radiusInput.min = String(minR);
+    radiusInput.step = isBuildingNote ? "1" : "10";
+    radiusInput.value = note?.radiusMeters ?? context?.radiusMeters ?? defR;
   }
   formPhotoUrls = parsePhotoUrls(note?.photoUrls);
   const photoWrap = document.getElementById("note-photos-wrap");
@@ -1951,6 +2094,9 @@ els.form.addEventListener("submit", async (e) => {
     if (body.lat == null || body.lon == null) return;
     const r = Number(document.getElementById("note-radius").value);
     body.radiusMeters = Number.isFinite(r) ? r : DEFAULT_POINT_RADIUS;
+  } else if (level === "Building") {
+    const r = Number(document.getElementById("note-radius").value);
+    body.radiusMeters = Number.isFinite(r) ? r : DEFAULT_BUILDING_RADIUS;
   }
   body.photoUrls = formPhotoUrls.length ? formPhotoUrls.join(",") : null;
 
@@ -1964,7 +2110,7 @@ els.form.addEventListener("submit", async (e) => {
   els.dialog.close();
   editingNoteId = null;
   formPointCoords = null;
-  if (level === "Point" && saved?.targetDistrictId) {
+  if ((level === "Point" || level === "Building") && saved?.targetDistrictId) {
     context.districtId = saved.targetDistrictId;
     selectedDistrictId = saved.targetDistrictId;
     applyDistrictStyles();
@@ -1972,7 +2118,7 @@ els.form.addEventListener("submit", async (e) => {
   await reloadDistrictColors();
   await loadPointNotes();
   await refreshSheet();
-  if (level === "Point") setSheetSnap("half");
+  if (level === "Point" || level === "Building") setSheetSnap("half");
   if (context.level === "Building") {
     await refreshCityAggregates(activeCityId || context.cityId);
     await loadBuildingMarkers();

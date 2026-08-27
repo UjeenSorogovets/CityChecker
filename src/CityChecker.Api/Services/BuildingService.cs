@@ -55,47 +55,12 @@ public class BuildingService(AppDbContext db, NominatimClient nominatim)
 
     async Task<Guid?> FindDistrictIdAsync(Guid cityId, double lon, double lat, CancellationToken ct)
     {
-        // Prefer PostGIS ST_Contains; fall back to NTS in-memory if SQL fails
-        try
-        {
-            await using var conn = db.Database.GetDbConnection();
-            if (conn.State != System.Data.ConnectionState.Open)
-                await conn.OpenAsync(ct);
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                SELECT d."DistrictId"
-                FROM "Districts" d
-                WHERE d."CityId" = @cityId
-                  AND ST_Contains(d."Geom", ST_SetSRID(ST_MakePoint(@lon, @lat), 4326))
-                LIMIT 1
-                """;
-            var pCity = cmd.CreateParameter();
-            pCity.ParameterName = "cityId";
-            pCity.Value = cityId;
-            cmd.Parameters.Add(pCity);
-            var pLon = cmd.CreateParameter();
-            pLon.ParameterName = "lon";
-            pLon.Value = lon;
-            cmd.Parameters.Add(pLon);
-            var pLat = cmd.CreateParameter();
-            pLat.ParameterName = "lat";
-            pLat.Value = lat;
-            cmd.Parameters.Add(pLat);
-            var result = await cmd.ExecuteScalarAsync(ct);
-            if (result is Guid g) return g;
-            if (result is not null) return Guid.Parse(result.ToString()!);
-        }
-        catch
-        {
-            var point = Gf.CreatePoint(new Coordinate(lon, lat));
-            var districts = await db.Districts.AsNoTracking()
-                .Where(d => d.CityId == cityId)
-                .Select(d => new { d.DistrictId, d.Geom })
-                .ToListAsync(ct);
-            return districts.FirstOrDefault(d => d.Geom.Contains(point))?.DistrictId;
-        }
-
-        return null;
+        // ponytail: use EF spatial (ST_Contains) — never dispose GetDbConnection() (kills SaveChanges).
+        var point = Gf.CreatePoint(new Coordinate(lon, lat));
+        return await db.Districts.AsNoTracking()
+            .Where(d => d.CityId == cityId && d.Geom.Contains(point))
+            .Select(d => (Guid?)d.DistrictId)
+            .FirstOrDefaultAsync(ct);
     }
 
     static City? MatchCity(List<City> cities, string? name, double lat, double lon)

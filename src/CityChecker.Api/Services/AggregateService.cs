@@ -15,9 +15,11 @@ public class AggregateService(AppDbContext db)
 
     public async Task<AggregateDto> ForDistrictAsync(Guid districtId, CancellationToken ct = default)
     {
-        // Point notes assigned to this district (coords inside polygon resolved on write)
+        // Point notes + building notes (by TargetDistrictId or Building.DistrictId)
         var q = db.Notes.AsNoTracking().Where(n =>
-            n.Level == NoteLevel.Point && n.TargetDistrictId == districtId);
+            (n.TargetDistrictId == districtId && (n.Level == NoteLevel.Point || n.Level == NoteLevel.Building)) ||
+            (n.Level == NoteLevel.Building && n.TargetBuildingId != null &&
+             db.Buildings.Any(b => b.BuildingId == n.TargetBuildingId && b.DistrictId == districtId)));
         return await AvgAsync(q, ct);
     }
 
@@ -31,20 +33,21 @@ public class AggregateService(AppDbContext db)
     {
         var cityAgg = await ForCityAsync(cityId, ct);
 
-        var districtRows = await db.Notes.AsNoTracking()
-            .Where(n => n.TargetCityId == cityId && n.Level == NoteLevel.Point && n.TargetDistrictId != null)
-            .GroupBy(n => n.TargetDistrictId!.Value)
-            .Select(g => new
-            {
-                Id = g.Key,
-                NoteCount = g.Count(),
-                ScoreOverall = g.Average(n => (double)n.ScoreOverall),
-                ScoreNature = g.Where(n => n.ScoreNature != null).Average(n => (double?)n.ScoreNature),
-                ScoreShops = g.Where(n => n.ScoreShops != null).Average(n => (double?)n.ScoreShops),
-                ScoreTransport = g.Where(n => n.ScoreTransport != null).Average(n => (double?)n.ScoreTransport),
-                ScoreSafety = g.Where(n => n.ScoreSafety != null).Average(n => (double?)n.ScoreSafety),
-            })
+        // ponytail: per-district Avg reuses ForDistrictAsync (incl. building-via-Building.DistrictId)
+        var districtIds = await db.Districts.AsNoTracking()
+            .Where(d => d.CityId == cityId)
+            .Select(d => d.DistrictId)
             .ToListAsync(ct);
+        var districtRows = new List<IdAggregateDto>();
+        foreach (var id in districtIds)
+        {
+            var a = await ForDistrictAsync(id, ct);
+            if (a.NoteCount > 0)
+            {
+                districtRows.Add(new IdAggregateDto(
+                    id, a.ScoreOverall, a.ScoreNature, a.ScoreShops, a.ScoreTransport, a.ScoreSafety, a.NoteCount));
+            }
+        }
 
         var buildingRows = await db.Notes.AsNoTracking()
             .Where(n => n.TargetCityId == cityId && n.Level == NoteLevel.Building && n.TargetBuildingId != null)
@@ -63,9 +66,7 @@ public class AggregateService(AppDbContext db)
 
         return new CityAggregatesDto(
             cityAgg,
-            districtRows.Select(r => new IdAggregateDto(
-                r.Id, Round(r.ScoreOverall), Round(r.ScoreNature), Round(r.ScoreShops),
-                Round(r.ScoreTransport), Round(r.ScoreSafety), r.NoteCount)).ToList(),
+            districtRows,
             buildingRows.Select(r => new IdAggregateDto(
                 r.Id, Round(r.ScoreOverall), Round(r.ScoreNature), Round(r.ScoreShops),
                 Round(r.ScoreTransport), Round(r.ScoreSafety), r.NoteCount)).ToList());

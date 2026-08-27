@@ -52,5 +52,26 @@ public static class BuildingEndpoints
                 ? Results.NotFound(new { error = error ?? "Could not create building at this location." })
                 : Results.Ok(building);
         }).RequireAuthorization();
+
+        // ponytail: Wołomin pilot — OSM footprints for click-to-select building
+        app.MapGet("/api/cities/{cityId:guid}/building-footprints", async (
+            Guid cityId,
+            ClaimsPrincipal user,
+            IConfiguration config,
+            BuildingFootprintService footprints,
+            double minLat,
+            double minLon,
+            double maxLat,
+            double maxLon,
+            CancellationToken ct) =>
+        {
+            if (user.EnsureOwner(config) is { } err) return err;
+            if (minLat is < 49 or > 55 || maxLat is < 49 or > 55 ||
+                minLon is < 14 or > 25 || maxLon is < 14 or > 25)
+                return Results.BadRequest(new { error = "Bbox must be within Poland bounds." });
+
+            var fc = await footprints.GetFootprintsAsync(cityId, minLat, minLon, maxLat, maxLon, ct);
+            return Results.Ok(fc);
+        }).RequireAuthorization();
     }
 }

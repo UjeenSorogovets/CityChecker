@@ -54,6 +54,10 @@ builder.Services.AddHttpClient<EnvironmentService>(c =>
 {
     c.Timeout = TimeSpan.FromSeconds(90);
 });
+builder.Services.AddHttpClient<BuildingFootprintService>(c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(90);
+});
 builder.Services.AddHttpClient<OtodomMapService>(c =>
 {
     // multi-page list + per-listing coords can take a few minutes on cold cache

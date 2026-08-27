@@ -11,9 +11,11 @@ namespace CityChecker.Api.Endpoints;
 public static class NoteEndpoints
 {
     public const int DefaultPointRadiusMeters = 50;
+    public const int DefaultBuildingRadiusMeters = 15;
     public const int MaxNotePhotos = 4;
     public const int MaxPhotoUrlsLength = 2000;
     public const int MinPointRadiusMeters = 50;
+    public const int MinBuildingRadiusMeters = 5;
     public const int MaxPointRadiusMeters = 2000;
 
     public static void MapNoteEndpoints(this WebApplication app)
@@ -33,12 +35,33 @@ public static class NoteEndpoints
 
             var q = db.Notes.AsNoTracking().AsQueryable();
             if (cityId is not null) q = q.Where(n => n.TargetCityId == cityId);
-            if (districtId is not null) q = q.Where(n => n.TargetDistrictId == districtId);
+            if (districtId is not null)
+            {
+                // Include building notes pinned to a building inside this district (even if TargetDistrictId unset)
+                q = q.Where(n =>
+                    n.TargetDistrictId == districtId ||
+                    (n.Level == NoteLevel.Building && n.TargetBuildingId != null &&
+                     db.Buildings.Any(b => b.BuildingId == n.TargetBuildingId && b.DistrictId == districtId)));
+            }
             if (buildingId is not null) q = q.Where(n => n.TargetBuildingId == buildingId);
             if (level is not null) q = q.Where(n => n.Level == level);
 
             var notes = await q.OrderByDescending(n => n.CreatedAt).ToListAsync();
-            return Results.Ok(notes.Select(ToDto));
+            // Enrich building notes missing coords from Buildings row
+            var needCoords = notes
+                .Where(n => n.Level == NoteLevel.Building && n.TargetBuildingId != null &&
+                            (n.Lat is null || n.Lon is null || n.TargetDistrictId is null))
+                .Select(n => n.TargetBuildingId!.Value)
+                .Distinct()
+                .ToList();
+            Dictionary<Guid, Building>? byId = null;
+            if (needCoords.Count > 0)
+            {
+                byId = await db.Buildings.AsNoTracking()
+                    .Where(b => needCoords.Contains(b.BuildingId))
+                    .ToDictionaryAsync(b => b.BuildingId);
+            }
+            return Results.Ok(notes.Select(n => ToDto(n, byId)));
         });
 
         group.MapPost("/", async (NoteWriteDto body, ClaimsPrincipal user, IConfiguration config, AppDbContext db) =>
@@ -124,6 +147,8 @@ public static class NoteEndpoints
                 => Results.BadRequest(new { error = $"RadiusMeters must be {MinPointRadiusMeters}–{MaxPointRadiusMeters}." }),
             NoteLevel.Building when body.TargetBuildingId is null
                 => Results.BadRequest(new { error = "Building notes require targetBuildingId." }),
+            NoteLevel.Building when body.RadiusMeters is not null and (< MinBuildingRadiusMeters or > MaxPointRadiusMeters)
+                => Results.BadRequest(new { error = $"RadiusMeters must be {MinBuildingRadiusMeters}–{MaxPointRadiusMeters}." }),
             _ => null
         };
     }
@@ -144,13 +169,28 @@ public static class NoteEndpoints
             radius = body.RadiusMeters ?? DefaultPointRadiusMeters;
             districtId = await ResolveDistrictAsync(db, body.TargetCityId, lat!.Value, lon!.Value);
         }
+        else if (body.Level == NoteLevel.Building)
+        {
+            // ponytail: same map/district effect as Point — pin at building coords
+            var bld = await db.Buildings.AsNoTracking()
+                .FirstOrDefaultAsync(b => b.BuildingId == body.TargetBuildingId);
+            if (bld is null)
+                throw new InvalidOperationException("Building not found.");
+            lat = bld.Lat;
+            lon = bld.Lon;
+            radius = body.RadiusMeters ?? DefaultBuildingRadiusMeters;
+            districtId = bld.DistrictId
+                ?? await ResolveDistrictAsync(db, body.TargetCityId, lat.Value, lon.Value);
+        }
 
         return new Note
         {
             AuthorGoogleId = googleId,
             Level = body.Level,
             TargetCityId = body.TargetCityId,
-            TargetDistrictId = body.Level == NoteLevel.Point ? districtId : body.TargetDistrictId,
+            TargetDistrictId = body.Level is NoteLevel.Point or NoteLevel.Building
+                ? districtId
+                : body.TargetDistrictId,
             TargetBuildingId = body.Level == NoteLevel.Building ? body.TargetBuildingId : null,
             Lat = lat,
             Lon = lon,
@@ -191,9 +231,24 @@ public static class NoteEndpoints
             .FirstOrDefaultAsync();
     }
 
-    static NoteDto ToDto(Note n) => new(
-        n.NoteId, n.AuthorGoogleId, n.Level, n.TargetCityId, n.TargetDistrictId, n.TargetBuildingId,
-        n.Lat, n.Lon, n.RadiusMeters,
-        n.Text, n.PhotoUrls, n.ScoreOverall, n.ScoreNature, n.ScoreShops, n.ScoreTransport, n.ScoreSafety,
-        n.CreatedAt, n.UpdatedAt);
+    static NoteDto ToDto(Note n, IReadOnlyDictionary<Guid, Building>? buildings = null)
+    {
+        var lat = n.Lat;
+        var lon = n.Lon;
+        var districtId = n.TargetDistrictId;
+        var radius = n.RadiusMeters;
+        if (n.Level == NoteLevel.Building && n.TargetBuildingId is Guid bid &&
+            buildings is not null && buildings.TryGetValue(bid, out var bld))
+        {
+            lat ??= bld.Lat;
+            lon ??= bld.Lon;
+            districtId ??= bld.DistrictId;
+            radius ??= DefaultBuildingRadiusMeters;
+        }
+        return new(
+            n.NoteId, n.AuthorGoogleId, n.Level, n.TargetCityId, districtId, n.TargetBuildingId,
+            lat, lon, radius,
+            n.Text, n.PhotoUrls, n.ScoreOverall, n.ScoreNature, n.ScoreShops, n.ScoreTransport, n.ScoreSafety,
+            n.CreatedAt, n.UpdatedAt);
+    }
 }

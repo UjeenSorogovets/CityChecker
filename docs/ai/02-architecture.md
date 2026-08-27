@@ -61,7 +61,7 @@
 | Auth | `AuthEndpoints.cs` | `POST /api/auth/register`, `POST /api/auth/login` |
 | Cities | `CityEndpoints.cs` | `GET /api/cities`, `GET /api/cities/{id}`, `GET /api/cities/{id}/environment` |
 | Districts | `CityEndpoints.cs` (`DistrictEndpoints`) | `GET /api/cities/{cityId}/districts`, `…/geojson`, `GET /api/districts/{id}` |
-| Buildings | `BuildingEndpoints.cs` | `GET /api/cities/{cityId}/buildings?bbox=…`, `POST /api/buildings/reverse-geocode` |
+| Buildings | `BuildingEndpoints.cs` | `GET /api/cities/{cityId}/buildings?bbox=…`, `GET …/building-footprints` (Wołomin OSM pilot), `POST /api/buildings/reverse-geocode` |
 | Notes | `NoteEndpoints.cs` | `GET/POST/PUT/DELETE /api/notes` (+ filters) |
 | Aggregates | `AggregateEndpoints.cs` | `/api/aggregates/city|district|building/{id}`, **`GET /api/cities/{cityId}/aggregates`** (batch) |
 | Housing | `HousingEndpoints.cs` | `/api/housing/*` — anchors, commute, picks, probe, visits, offers, **`POST /otodom/pins`**, **`POST /otodom/pins/refresh`**, profile, compare, finalists, `export.csv` |

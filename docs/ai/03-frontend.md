@@ -72,6 +72,7 @@ District GeoJSON loads via `mapAbort`; environment load uses separate **`envLoad
 - Tap point center dot → select note (sheet; no auto-open form)  
 - Tap district polygon → select district + housing slot  
 - Tap building marker → select building  
+- **Wołomin pilot:** at building zoom (comfort), OSM footprints load via `GET …/building-footprints`; tap footprint → reverse-geocode → `selectBuilding` → Add note (Building notes store lat/lon/district like Point — affect district fill + appear in district sheet)  
 - Tap empty map → city-level sheet, snap **peek**  
 - Drag `#place-note-fab` onto map → new point note; drop via `map.mouseEventToLatLng`  
 - Point influence circles (`L.circle`): `interactive: false`  
@@ -104,6 +105,7 @@ District GeoJSON loads via `mapAbort`; environment load uses separate **`envLoad
 | `cityLayer` | City markers (unlocked) |
 | `districtLayer` | GeoJSON polygons |
 | `buildingLayer` | Building markers |
+| `footprintLayer` | Wołomin OSM building polygons (pilot) |
 | `pointLayer` | Point notes (circles + center dots) |
 | `riskSourceLayer` | Environment rings, wedges, markers |
 | `context` | Current sheet target |
@@ -111,6 +113,7 @@ District GeoJSON loads via `mapAbort`; environment load uses separate **`envLoad
 | `environmentScores` / `environmentDetails` | From `GET /api/cities/{id}/environment` |
 | `mapAbort` | Aborts district/building reload |
 | `envLoadGen` | Ignores stale environment responses |
+| `footprintLoadGen` | Ignores stale footprint responses |
 
 **Critical:** do not call `bringToFront()` on `L.LayerGroup` — throws and aborted env load.
 
