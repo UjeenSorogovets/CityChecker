@@ -57,7 +57,7 @@ public class BuildingFootprintImportService(
             if (!TryParseBuilding(el, out var osmType, out var osmId, out var name, out var addr, out var geom)
                 || geom is null)
                 continue;
-            if (!district.Geom.Intersects(geom))
+            if (!SafeIntersects(district.Geom, geom))
                 continue;
             rows.Add(NewRow(cityId, district.DistrictId, osmType!, osmId, name, addr, geom, now));
         }
@@ -98,7 +98,7 @@ public class BuildingFootprintImportService(
                 if (!TryParseBuilding(el, out var osmType, out var osmId, out var name, out var addr, out var geom)
                     || geom is null)
                     continue;
-                if (!district.Geom.Intersects(geom))
+                if (!SafeIntersects(district.Geom, geom))
                     continue;
                 var key = (osmType!, osmId);
                 if (byOsm.ContainsKey(key)) continue;
@@ -241,6 +241,19 @@ public class BuildingFootprintImportService(
         }
         if (polygons.Count == 0) return false;
         geom = Gf.CreateMultiPolygon(polygons.ToArray());
+        // ponytail: OSM ways are often self-intersecting; Buffer(0) repairs for Intersects/PostGIS.
+        try
+        {
+            var fixedGeom = geom.Buffer(0);
+            if (fixedGeom is MultiPolygon mp) geom = mp;
+            else if (fixedGeom is Polygon p) geom = Gf.CreateMultiPolygon([p]);
+            else return false;
+            if (geom.IsEmpty) return false;
+        }
+        catch
+        {
+            return false;
+        }
 
         if (el.TryGetProperty("tags", out var tags))
         {
@@ -251,6 +264,25 @@ public class BuildingFootprintImportService(
                 addr = Truncate($"{street} {housenumber}".Trim(), 300);
         }
         return true;
+    }
+
+    static bool SafeIntersects(Geometry a, Geometry b)
+    {
+        try
+        {
+            return a.Intersects(b);
+        }
+        catch
+        {
+            try
+            {
+                return a.EnvelopeInternal.Intersects(b.EnvelopeInternal) && a.Contains(b.Centroid);
+            }
+            catch
+            {
+                return false;
+            }
+        }
     }
 
     static Coordinate[]? RingFromGeometry(JsonElement el)
