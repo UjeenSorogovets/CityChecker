@@ -706,15 +706,24 @@ function initResetNorth() {
   if (!btn || !map || btn.dataset.wired) return;
   btn.dataset.wired = "1";
 
+  const setRotating = (on) => {
+    map.getContainer().classList.toggle("map-rotating", on);
+  };
+
+  map.on("rotatestart", () => setRotating(true));
   map.on("rotate", () => {
     applyUserHeading();
     updateResetNorthBtn();
   });
-  map.on("rotateend", updateResetNorthBtn);
+  map.on("rotateend", () => {
+    setRotating(false);
+    updateResetNorthBtn();
+  });
 
   btn.addEventListener("click", () => {
     if (!map?.setBearing) return;
     map.setBearing(0);
+    setRotating(false);
     applyUserHeading();
     updateResetNorthBtn();
   });
