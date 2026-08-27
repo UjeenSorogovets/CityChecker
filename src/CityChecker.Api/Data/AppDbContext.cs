@@ -20,6 +20,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<CityEnvironmentSources> CityEnvironmentSources => Set<CityEnvironmentSources>();
     public DbSet<OtodomPinSet> OtodomPinSets => Set<OtodomPinSet>();
     public DbSet<OtodomPin> OtodomPins => Set<OtodomPin>();
+    public DbSet<OsmBuildingFootprint> OsmBuildingFootprints => Set<OsmBuildingFootprint>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -181,6 +182,24 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.PinSetId, x.ExternalId }).IsUnique();
             e.HasIndex(x => new { x.PinSetId, x.Lat, x.Lon });
+        });
+
+        modelBuilder.Entity<OsmBuildingFootprint>(e =>
+        {
+            e.HasKey(x => x.OsmBuildingFootprintId);
+            e.Property(x => x.OsmType).HasMaxLength(16).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.Addr).HasMaxLength(300);
+            e.Property(x => x.Geom)
+                .HasColumnType("geometry(MultiPolygon, 4326)")
+                .IsRequired();
+            e.HasOne(x => x.City).WithMany().HasForeignKey(x => x.CityId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.District).WithMany().HasForeignKey(x => x.DistrictId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.OsmType, x.OsmId }).IsUnique();
+            e.HasIndex(x => x.DistrictId);
+            e.HasIndex(x => x.Geom).HasMethod("GIST");
         });
     }
 }

@@ -50,6 +50,7 @@ cat > "${STAGE}/MANIFEST.json" <<EOF
     "CityEnvironmentSources",
     "OtodomPinSets",
     "OtodomPins",
+    "OsmBuildingFootprints",
     "districts_import_raw"
   ],
   "secretsChecklist": [
@@ -60,7 +61,7 @@ cat > "${STAGE}/MANIFEST.json" <<EOF
     "DOMAIN",
     "APP_PUBLIC_BASE_URL"
   ],
-  "notes": "Copy .env separately. Env risk and Otodom pin caches are omitted — refresh Environment mode / Otodom Refresh after restore."
+  "notes": "Copy .env separately. Env / Otodom / OSM footprint caches are omitted — refresh Environment mode, Otodom Refresh, or building-footprints after restore."
 }
 EOF
 

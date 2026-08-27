@@ -73,7 +73,7 @@ District GeoJSON loads via `mapAbort`; environment load uses separate **`envLoad
 - Tap point center dot → select note (sheet; no auto-open form)  
 - Tap district polygon → select district + housing slot  
 - Tap building marker → select building  
-- **Wołomin pilot:** at building zoom (comfort), OSM footprints load via `GET …/building-footprints`; tap footprint → reverse-geocode → `selectBuilding` → Add note (Building notes store lat/lon/district like Point — affect district fill + appear in district sheet)  
+- **Wołomin pilot:** at building zoom (comfort), OSM footprints via `GET …/building-footprints` — served from PostGIS (`OsmBuildingFootprints`); first empty load may import via Overpass (~1–2 min), then pans are DB-only. UI keeps prior polygons until the next load; prefetch pads bbox (cheap DB hits). Tap → reverse-geocode → `selectBuilding` → Add note.  
 - Tap empty map → city-level sheet, snap **peek**  
 - Drag `#place-note-fab` onto map → new point note; drop via `map.mouseEventToLatLng`  
 - Point influence circles (`L.circle`): `interactive: false`  

@@ -1689,35 +1689,51 @@ async function loadBuildingFootprints() {
     return;
   }
   const gen = ++footprintLoadGen;
+  const cityId = activeCityId;
   const b = map.getBounds();
-  const qs = new URLSearchParams({
-    minLat: String(b.getSouth()),
-    minLon: String(b.getWest()),
-    maxLat: String(b.getNorth()),
-    maxLon: String(b.getEast()),
-  });
+  const qs = footprintBoundsQs(b);
   try {
-    const fc = await api(`/api/cities/${activeCityId}/building-footprints?${qs}`);
+    const fc = await api(`/api/cities/${cityId}/building-footprints?${qs}`);
     if (gen !== footprintLoadGen) return;
-    if (footprintLayer && map) map.removeLayer(footprintLayer);
-    footprintLayer = null;
-    if (!fc?.features?.length) return;
-    footprintLayer = L.geoJSON(fc, {
-      style: footprintStyle,
-      onEachFeature: (feature, layer) => {
-        layer.on("click", (e) => {
-          L.DomEvent.stopPropagation(e);
-          onFootprintClick(feature, layer);
-        });
-      },
-    });
-    footprintLayer.addTo(map);
-  } catch {
-    if (gen === footprintLoadGen) {
-      if (footprintLayer && map) map.removeLayer(footprintLayer);
-      footprintLayer = null;
+    // Keep previous polygons visible until the new layer is ready (no blank flash)
+    const prev = footprintLayer;
+    let next = null;
+    if (fc?.features?.length) {
+      next = L.geoJSON(fc, {
+        style: footprintStyle,
+        onEachFeature: (feature, layer) => {
+          layer.on("click", (e) => {
+            L.DomEvent.stopPropagation(e);
+            onFootprintClick(feature, layer);
+          });
+        },
+      });
+      next.addTo(map);
     }
+    if (prev && map.hasLayer(prev)) map.removeLayer(prev);
+    footprintLayer = next;
+    prefetchFootprintNeighbors(cityId, b);
+  } catch {
+    // Keep previous layer on failure
   }
+}
+
+/** ~matches server BuildingFootprintService.TileDeg — pad viewport to warm neighbor tiles. */
+const FOOTPRINT_TILE_DEG = 0.01;
+
+function footprintBoundsQs(bounds, padDeg = 0) {
+  return new URLSearchParams({
+    minLat: String(bounds.getSouth() - padDeg),
+    minLon: String(bounds.getWest() - padDeg),
+    maxLat: String(bounds.getNorth() + padDeg),
+    maxLon: String(bounds.getEast() + padDeg),
+  });
+}
+
+function prefetchFootprintNeighbors(cityId, bounds) {
+  // Fire-and-forget: expands bbox by one tile so adjacent Overpass tiles fill IMemoryCache
+  const qs = footprintBoundsQs(bounds, FOOTPRINT_TILE_DEG);
+  api(`/api/cities/${cityId}/building-footprints?${qs}`).catch(() => {});
 }
 
 async function onFootprintClick(feature, layer) {

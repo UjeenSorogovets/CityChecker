@@ -88,5 +88,6 @@ $COMPOSE up -d
 echo ""
 echo "Restore done."
 echo "  - Ensure .env is present (AUTH_JWT_SECRET etc.)."
-echo "  - Env layer cache was not in the dump — open Environment mode or:"
+echo "  - Env / Otodom / OSM footprint caches were not in the dump — open Environment mode, Otodom Refresh, or:"
 echo "      POST /api/admin/refresh-environment/{cityId}"
+echo "      POST /api/admin/refresh-building-footprints/{cityId}"

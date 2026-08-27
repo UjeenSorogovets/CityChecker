@@ -59,7 +59,7 @@ Never print SSH passwords. `--health` checks uptime, disk, compose ps, HTTPS hea
 Windows: same `.sh` via Git Bash / WSL.
 
 **Bundle:** `postgres.dump` (custom format) + `DataImports/` + `MANIFEST.json`  
-**Excluded tables:** `DistrictEnvironments`, `CityEnvironmentSources`, `OtodomPinSets`, `OtodomPins`, `districts_import_raw`  
+**Excluded tables:** `DistrictEnvironments`, `CityEnvironmentSources`, `OtodomPinSets`, `OtodomPins`, `OsmBuildingFootprints`, `districts_import_raw`  
 **Not included:** `.env` — copy separately using `.env.example` as template  
 
 After restore: `POST /api/admin/refresh-environment/{cityId}` or open Environment mode.

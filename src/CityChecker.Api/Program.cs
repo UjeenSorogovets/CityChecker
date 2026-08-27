@@ -54,10 +54,12 @@ builder.Services.AddHttpClient<EnvironmentService>(c =>
 {
     c.Timeout = TimeSpan.FromSeconds(90);
 });
-builder.Services.AddHttpClient<BuildingFootprintService>(c =>
+builder.Services.AddHttpClient<BuildingFootprintImportService>(c =>
 {
-    c.Timeout = TimeSpan.FromSeconds(90);
+    // Overpass district envelope can take 1–2 minutes
+    c.Timeout = TimeSpan.FromMinutes(4);
 });
+builder.Services.AddScoped<BuildingFootprintService>();
 builder.Services.AddHttpClient<OtodomMapService>(c =>
 {
     // multi-page list + per-listing coords can take a few minutes on cold cache

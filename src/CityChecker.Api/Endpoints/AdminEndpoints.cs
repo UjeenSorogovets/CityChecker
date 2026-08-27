@@ -44,5 +44,24 @@ public static class AdminEndpoints
                 return Results.Problem(ex.Message, statusCode: 500);
             }
         }).RequireAuthorization();
+
+        app.MapPost("/api/admin/refresh-building-footprints/{cityId:guid}", async (
+            Guid cityId,
+            ClaimsPrincipal user,
+            IConfiguration config,
+            BuildingFootprintImportService importer,
+            CancellationToken ct) =>
+        {
+            if (user.EnsureOwner(config) is { } err) return err;
+            try
+            {
+                var (districtId, count) = await importer.ImportForCityAsync(cityId, ct);
+                return Results.Ok(new { districtId, count });
+            }
+            catch (Exception ex)
+            {
+                return Results.Problem(ex.Message, statusCode: 500);
+            }
+        }).RequireAuthorization();
     }
 }

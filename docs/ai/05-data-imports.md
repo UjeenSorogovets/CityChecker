@@ -61,4 +61,4 @@ Re-importing districts creates **new** `DistrictId` GUIDs. User notes, picks, vi
 
 **Always restore Postgres dump with user data** — GeoJSON alone is not enough. See [06-ops.md](06-ops.md).
 
-Env cache (`DistrictEnvironments`, `CityEnvironmentSources`), Otodom pin cache (`OtodomPinSets`, `OtodomPins`), and `districts_import_raw` are excluded from backup dumps (regenerable).
+Env cache (`DistrictEnvironments`, `CityEnvironmentSources`), Otodom pin cache (`OtodomPinSets`, `OtodomPins`), OSM footprints (`OsmBuildingFootprints`), and `districts_import_raw` are excluded from backup dumps (regenerable).
