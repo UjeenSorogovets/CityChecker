@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body, #map { margin: 0; height: 100%; width: 100%; }
+    #out { position: absolute; z-index: 1000; background: #111; color: #fff; font: 12px monospace; padding: 8px; max-width: 100%; }
+    .user-accuracy-ring {
+      position: absolute; left: 50%; top: 50%;
+      border: 2px solid rgba(66, 133, 244, 0.65);
+      background: rgba(66, 133, 244, 0.15);
+      border-radius: 50%; pointer-events: none; box-sizing: border-box;
+    }
+    .user-heading-dot {
+      width: 14px; height: 14px; border-radius: 50%; background: #4285f4;
+      border: 2px solid #fff; position: absolute; left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+    }
+  </style>
+</head>
+<body>
+  <pre id="out">loading</pre>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
+  <script>
+    window.onerror = (m) => {
+      const payload = { ok: false, msg: String(m) };
+      document.getElementById("out").textContent = JSON.stringify(payload);
+      document.title = "FAIL";
+      window.__ccRotateCheck = payload;
+    };
+    // Mirrors glueVectorsToRotatePane + mapRotating in wwwroot/js/app.js
+    let mapRotating = false;
+    let rotateStartZoom = null;
+    let rendererCalls = 0;
+
+    function wrapCount(obj, name) {
+      const orig = obj[name];
+      if (typeof orig !== "function") return;
+      obj[name] = function () {
+        rendererCalls++;
+        return orig.apply(this, arguments);
+      };
+    }
+
+    wrapCount(L.Renderer.prototype, "_update");
+    wrapCount(L.Renderer.prototype, "_updateTransform");
+    wrapCount(L.Renderer.prototype, "_reset");
+    wrapCount(L.Renderer.prototype, "_onZoom");
+    wrapCount(L.SVG.prototype, "_update");
+
+    function glueVectorsToRotatePane() {
+      const proto = L.Renderer.prototype;
+      if (proto._ccNoRotateUpdate) return;
+      proto._ccNoRotateUpdate = true;
+      const getEvents = proto.getEvents;
+      proto.getEvents = function () {
+        const ev = getEvents.call(this);
+        delete ev.rotate;
+        return ev;
+      };
+      const skipIfRotating = (fn) =>
+        function () {
+          if (mapRotating) return;
+          return fn.apply(this, arguments);
+        };
+      proto._update = skipIfRotating(proto._update);
+      proto._updateTransform = skipIfRotating(proto._updateTransform);
+      if (proto._reset) proto._reset = skipIfRotating(proto._reset);
+      if (proto._onZoom) proto._onZoom = skipIfRotating(proto._onZoom);
+      if (L.SVG?.prototype?._update) L.SVG.prototype._update = skipIfRotating(L.SVG.prototype._update);
+      const onAdd = proto.onAdd;
+      proto.onAdd = function () {
+        const ret = onAdd.apply(this, arguments);
+        this._container?.classList.remove("leaflet-zoom-animated");
+        this._zoomAnimated = false;
+        if (this._map) this._map.off("rotate", this._update, this);
+        return ret;
+      };
+      const setBearing = L.Map.prototype.setBearing;
+      L.Map.prototype.setBearing = function (deg) {
+        if (this._rotate && !this._ccResetNorth && this._loaded) {
+          const next = L.Util.wrapNum(deg, [0, 360]);
+          const curr = L.Util.wrapNum(this.getBearing(), [0, 360]);
+          let delta = Math.abs(next - curr) % 360;
+          if (delta > 180) delta = 360 - delta;
+          if (delta > 0.05) {
+            if (!mapRotating) rotateStartZoom = this.getZoom();
+            mapRotating = true;
+          }
+        }
+        return setBearing.apply(this, arguments);
+      };
+    }
+
+    glueVectorsToRotatePane();
+
+    const map = L.map("map", {
+      center: [51.759, 19.458],
+      zoom: 16,
+      rotate: true,
+      touchRotate: true,
+      bearing: 0,
+      zoomAnimation: false,
+      markerZoomAnimation: false,
+      fadeAnimation: false,
+    });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+
+    const house = L.polygon(
+      [
+        [51.7592, 19.4576],
+        [51.7592, 19.4584],
+        [51.7586, 19.4584],
+        [51.7586, 19.4576],
+      ],
+      { color: "#c00", weight: 3, fillOpacity: 0.35 }
+    ).addTo(map);
+
+    const gps = L.marker([51.7589, 19.458], {
+      icon: L.divIcon({
+        className: "user-heading-icon",
+        iconSize: [120, 120],
+        iconAnchor: [60, 60],
+        html: '<div class="user-accuracy-ring" style="width:80px;height:80px;margin:-40px 0 0 -40px"></div><div class="user-heading-dot"></div>',
+      }),
+    }).addTo(map);
+
+    function paneInfo() {
+      const overlay = map.getPane("overlayPane");
+      const tile = map.getPane("tilePane");
+      const path = overlay.querySelector("path");
+      return {
+        sameParent: overlay.parentElement === tile.parentElement,
+        parentClass: overlay.parentElement?.className || "",
+        overlayTransform: overlay.parentElement?.style.transform || getComputedStyle(overlay.parentElement).transform,
+        pathD: path?.getAttribute("d") || "",
+        pathCount: overlay.querySelectorAll("path").length,
+      };
+    }
+
+    function fail(msg, extra) {
+      const payload = { ok: false, msg, extra };
+      document.getElementById("out").textContent = JSON.stringify(payload, null, 2);
+      document.title = "FAIL";
+      window.__ccRotateCheck = payload;
+    }
+
+    function pass(payload) {
+      payload.ok = true;
+      document.getElementById("out").textContent = JSON.stringify(payload, null, 2);
+      document.title = "PASS";
+      window.__ccRotateCheck = payload;
+    }
+
+    map.whenReady(() => {
+      setTimeout(() => {
+        try {
+        const before = paneInfo();
+        const callsBefore = rendererCalls;
+        rendererCalls = 0;
+
+        for (let b = 5; b <= 45; b += 5) map.setBearing(b);
+        map.fire("move");
+        map.fire("moveend");
+
+        const during = paneInfo();
+        const callsDuring = rendererCalls;
+
+        const problems = [];
+        if (!before.sameParent || !during.sameParent) problems.push("overlay and tiles not in the same rotate parent");
+        if (!/rotate/.test(during.parentClass) && !during.overlayTransform.includes("matrix") && during.overlayTransform === "none") {
+          problems.push("rotate pane has no transform at bearing 45");
+        }
+        if (during.pathD !== before.pathD) problems.push("SVG path d changed during rotate (redraw, not CSS)");
+        if (during.pathCount !== before.pathCount) problems.push("path count changed (ghost leftover?)");
+        if (callsDuring !== 0) problems.push("renderer _update* ran during rotate: " + callsDuring);
+
+        rendererCalls = 0;
+        mapRotating = false;
+        map.eachLayer((layer) => {
+          const r = layer._renderer;
+          if (r && typeof r._update === "function") r._update();
+        });
+        const callsAfter = rendererCalls;
+        if (callsAfter === 0) problems.push("renderer stayed frozen after mapRotating=false");
+
+        const result = {
+          callsBeforeGesture: callsBefore,
+          callsDuring,
+          callsAfterUnfreeze: callsAfter,
+          pathDUnchanged: during.pathD === before.pathD,
+          pathCount: during.pathCount,
+          sameRotateParent: during.sameParent,
+          parentClass: during.parentClass,
+          transform: during.overlayTransform,
+          gpsInNorotate: map.getPane("markerPane")?.parentElement?.className || "",
+        };
+        if (problems.length) fail(problems.join("; "), result);
+        else pass(result);
+        } catch (e) {
+          fail(String(e && e.stack || e), {});
+        }
+      }, 800);
+    });
+    window.onerror = (m) => fail(String(m), {});
+  </script>
+</body>
+</html>

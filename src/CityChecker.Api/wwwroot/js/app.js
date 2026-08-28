@@ -64,6 +64,8 @@ const MAX_NOTE_PHOTOS = 4;
 /** Leaflet LatLngBounds.pad — extra margin so a short pan stays inside last fetch. */
 const VIEW_LOAD_PAD = 0.25;
 let mapRotating = false;
+let rotateStartZoom = null;
+let rotateIdleTimer = null;
 /** @type {L.LatLngBounds | null} */
 let lastBuildingLoadBounds = null;
 let lastBuildingLoadCityId = null;
@@ -727,18 +729,10 @@ function initResetNorth() {
   btn.dataset.wired = "1";
 
   // leaflet-rotate 0.2.8 only fires "rotate" (no rotatestart/rotateend)
-  let rotateIdleTimer = null;
   map.on("rotate", () => {
-    mapRotating = true;
     clearTimeout(moveTimer);
     clearTimeout(rotateIdleTimer);
-    rotateIdleTimer = setTimeout(() => {
-      mapRotating = false;
-      updateResetNorthBtn();
-      refreshUserLocationIcon();
-      scheduleMapUpdate();
-      scheduleOtodomReload();
-    }, 160);
+    rotateIdleTimer = setTimeout(finishRotateGesture, 200);
     applyUserHeading();
     updateResetNorthBtn();
   });
@@ -746,8 +740,11 @@ function initResetNorth() {
   btn.addEventListener("click", () => {
     if (!map?.setBearing) return;
     clearTimeout(rotateIdleTimer);
+    map._ccResetNorth = true;
     mapRotating = false;
+    rotateStartZoom = null;
     map.setBearing(0);
+    map._ccResetNorth = false;
     applyUserHeading();
     updateResetNorthBtn();
     scheduleMapUpdate();
@@ -1268,24 +1265,70 @@ function fitPolandView() {
   map.fitBounds(POLAND_VIEW_BOUNDS, { padding: [16, 16], maxZoom: 8, animate: false });
 }
 
+function finishRotateGesture() {
+  const zoomChanged = map && rotateStartZoom != null && map.getZoom() !== rotateStartZoom;
+  mapRotating = false;
+  rotateStartZoom = null;
+  updateResetNorthBtn();
+  refreshUserLocationIcon();
+  if (zoomChanged) {
+    map.eachLayer((layer) => {
+      const r = layer._renderer;
+      if (r && typeof r._update === "function") r._update();
+    });
+  }
+  scheduleMapUpdate();
+  scheduleOtodomReload();
+}
+
 function glueVectorsToRotatePane() {
-  // leaflet-rotate CSS-rotates overlayPane with tiles, then also binds rotate→Renderer._update
-  // which redraws SVG in a second transform. That is the ghost/jerk (houses, GPS circle).
   const proto = L.Renderer.prototype;
   if (proto._ccNoRotateUpdate) return;
   proto._ccNoRotateUpdate = true;
+
   const getEvents = proto.getEvents;
   proto.getEvents = function () {
     const ev = getEvents.call(this);
     delete ev.rotate;
     return ev;
   };
+
+  const skipIfRotating = (fn) =>
+    function () {
+      if (mapRotating) return;
+      return fn.apply(this, arguments);
+    };
+
+  proto._update = skipIfRotating(proto._update);
+  proto._updateTransform = skipIfRotating(proto._updateTransform);
+  if (proto._reset) proto._reset = skipIfRotating(proto._reset);
+  if (proto._onZoom) proto._onZoom = skipIfRotating(proto._onZoom);
+  if (L.SVG?.prototype?._update) L.SVG.prototype._update = skipIfRotating(L.SVG.prototype._update);
+  if (L.Canvas?.prototype?._update) L.Canvas.prototype._update = skipIfRotating(L.Canvas.prototype._update);
+
   const onAdd = proto.onAdd;
   proto.onAdd = function () {
     const ret = onAdd.apply(this, arguments);
     this._container?.classList.remove("leaflet-zoom-animated");
+    this._zoomAnimated = false;
     if (this._map) this._map.off("rotate", this._update, this);
     return ret;
+  };
+
+  // setBearing fires rotate; freeze SVG before any renderer listener.
+  const setBearing = L.Map.prototype.setBearing;
+  L.Map.prototype.setBearing = function (deg) {
+    if (this._rotate && !this._ccResetNorth && this._loaded) {
+      const next = L.Util.wrapNum(deg, [0, 360]);
+      const curr = L.Util.wrapNum(this.getBearing(), [0, 360]);
+      let delta = Math.abs(next - curr) % 360;
+      if (delta > 180) delta = 360 - delta;
+      if (delta > 0.05) {
+        if (!mapRotating) rotateStartZoom = this.getZoom();
+        mapRotating = true;
+      }
+    }
+    return setBearing.apply(this, arguments);
   };
 }
 
