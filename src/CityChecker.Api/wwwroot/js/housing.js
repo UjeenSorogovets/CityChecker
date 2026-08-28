@@ -5,14 +5,19 @@ import { t } from "./i18n.js";
 let offerLayer = null;
 /** @type {L.LayerGroup | null} */
 let otodomLayer = null;
-/** @type {{ map: L.Map, getActiveCityId: () => string|null, getContext: () => any }} */
+/** @type {{ map: L.Map, getActiveCityId: () => string|null, getContext: () => any, isMapRotating?: () => boolean }} */
 let ctx = null;
 
+const VIEW_LOAD_PAD = 0.25;
 const OTODOM_FILTERS_KEY = "cc_otodom_filters";
 const OTODOM_DEFAULTS = { priceMax: 650000, areaMin: 50, rooms: ["TWO", "THREE", "FOUR", "FIVE", "SIX_OR_MORE"] };
 let otodomEnabled = false;
 let otodomTimer = null;
 let otodomGen = 0;
+/** @type {L.LatLngBounds | null} */
+let lastOtodomLoadBounds = null;
+let lastOtodomLoadCityId = null;
+let lastOtodomFilterKey = "";
 let offersAllowed = false;
 let isUpdateOffers = false;
 
@@ -77,6 +82,9 @@ function wireUi() {
   document.getElementById("otodom-show")?.addEventListener("change", (e) => {
     otodomEnabled = !!e.target.checked;
     if (!otodomEnabled) {
+      lastOtodomLoadBounds = null;
+      lastOtodomLoadCityId = null;
+      lastOtodomFilterKey = "";
       otodomLayer?.clearLayers();
       setOtodomStatus(t("otodomHint"));
       return;
@@ -248,7 +256,8 @@ function persistOtodomFilters() {
   localStorage.setItem(OTODOM_FILTERS_KEY, JSON.stringify(readOtodomFilters()));
 }
 
-function scheduleOtodomReload(immediate = false, opts = {}) {
+export function scheduleOtodomReload(immediate = false, opts = {}) {
+  if (ctx?.isMapRotating?.() && !opts.refresh) return;
   clearTimeout(otodomTimer);
   otodomTimer = setTimeout(() => reloadOtodomPins(opts), immediate ? 0 : 450);
 }
@@ -312,7 +321,18 @@ async function reloadOtodomPins(opts = {}) {
   }
 
   const refresh = !!opts.refresh;
-  const b = ctx.map.getBounds();
+  const filterKey = JSON.stringify(filters);
+  const view = ctx.map.getBounds();
+  if (
+    !refresh &&
+    lastOtodomLoadBounds &&
+    lastOtodomLoadCityId === cityId &&
+    lastOtodomFilterKey === filterKey &&
+    lastOtodomLoadBounds.contains(view)
+  ) {
+    return;
+  }
+  const b = view.pad(VIEW_LOAD_PAD);
   const gen = ++otodomGen;
   setOtodomStatus(refresh ? t("otodomRefreshing") : t("otodomLoading"));
   const btn = document.getElementById("otodom-refresh");
@@ -324,6 +344,9 @@ async function reloadOtodomPins(opts = {}) {
       body: JSON.stringify(otodomRequestBody(cityId, filters, b)),
     });
     if (gen !== otodomGen) return;
+    lastOtodomLoadBounds = b;
+    lastOtodomLoadCityId = cityId;
+    lastOtodomFilterKey = filterKey;
     renderOtodomPins(res.pins || []);
     setOtodomStatus(formatOtodomStatus(res));
   } catch (e) {

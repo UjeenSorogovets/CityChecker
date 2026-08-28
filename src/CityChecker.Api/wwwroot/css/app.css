@@ -113,21 +113,6 @@ body {
   pointer-events: none;
 }
 
-/* Hide vector overlays while rotating — tiles stay; avoids laggy markers on phones */
-.leaflet-container.map-rotating .leaflet-overlay-pane,
-.leaflet-container.map-rotating .leaflet-marker-pane,
-.leaflet-container.map-rotating .leaflet-shadow-pane,
-.leaflet-container.map-rotating .leaflet-risk-pane {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.08s linear;
-}
-.leaflet-container:not(.map-rotating) .leaflet-overlay-pane,
-.leaflet-container:not(.map-rotating) .leaflet-marker-pane,
-.leaflet-container:not(.map-rotating) .leaflet-shadow-pane,
-.leaflet-container:not(.map-rotating) .leaflet-risk-pane {
-  transition: opacity 0.08s linear;
-}
 .password-form {
   display: grid;
   gap: 0.75rem;

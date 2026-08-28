@@ -1,6 +1,6 @@
 import { api, getToken, setToken, clearToken, isTokenExpired, getUserIdFromToken } from "./api.js";
 import { applyI18n, t, toggleLang } from "./i18n.js";
-import { initHousing } from "./housing.js";
+import { initHousing, scheduleOtodomReload } from "./housing.js";
 import { createRuVoiceInput, isVoiceInputSupported } from "./voice-input.js";
 
 const ZOOM_CITY = 10;
@@ -59,6 +59,16 @@ const DEFAULT_BUILDING_RADIUS = 15;
 const MIN_BUILDING_RADIUS = 5;
 const MIN_POINT_RADIUS = 50;
 const MAX_NOTE_PHOTOS = 4;
+/** Leaflet LatLngBounds.pad — extra margin so a short pan stays inside last fetch. */
+const VIEW_LOAD_PAD = 0.25;
+let mapRotating = false;
+/** @type {L.LatLngBounds | null} */
+let lastBuildingLoadBounds = null;
+let lastBuildingLoadCityId = null;
+/** @type {L.LatLngBounds | null} */
+let lastFootprintLoadBounds = null;
+let lastFootprintLoadCityId = null;
+let lastPointNotesCityId = null;
 /** Coords for the note being created/edited (Point level). */
 let formPointCoords = null;
 /** @type {string[]} */
@@ -712,18 +722,17 @@ function initResetNorth() {
   if (!btn || !map || btn.dataset.wired) return;
   btn.dataset.wired = "1";
 
-  // leaflet-rotate 0.2.8 only fires "rotate" (no rotatestart/rotateend) — debounce idle to unhide
-  let rotateHideTimer = null;
-  const setRotating = (on) => {
-    map.getContainer().classList.toggle("map-rotating", on);
-  };
-
+  // leaflet-rotate 0.2.8 only fires "rotate" (no rotatestart/rotateend)
+  let rotateIdleTimer = null;
   map.on("rotate", () => {
-    setRotating(true);
-    clearTimeout(rotateHideTimer);
-    rotateHideTimer = setTimeout(() => {
-      setRotating(false);
+    mapRotating = true;
+    clearTimeout(moveTimer);
+    clearTimeout(rotateIdleTimer);
+    rotateIdleTimer = setTimeout(() => {
+      mapRotating = false;
       updateResetNorthBtn();
+      scheduleMapUpdate();
+      scheduleOtodomReload();
     }, 160);
     applyUserHeading();
     updateResetNorthBtn();
@@ -731,11 +740,13 @@ function initResetNorth() {
 
   btn.addEventListener("click", () => {
     if (!map?.setBearing) return;
-    clearTimeout(rotateHideTimer);
+    clearTimeout(rotateIdleTimer);
+    mapRotating = false;
     map.setBearing(0);
-    setRotating(false);
     applyUserHeading();
     updateResetNorthBtn();
+    scheduleMapUpdate();
+    scheduleOtodomReload();
   });
 
   updateResetNorthBtn();
@@ -1262,10 +1273,20 @@ function initMap() {
     map,
     getActiveCityId: () => activeCityId,
     getContext: () => context,
+    isMapRotating: () => mapRotating,
   });
 }
 
+function loadBounds() {
+  return map.getBounds().pad(VIEW_LOAD_PAD);
+}
+
+function viewInside(loaded) {
+  return Boolean(loaded && map && loaded.contains(map.getBounds()));
+}
+
 function scheduleMapUpdate() {
+  if (mapRotating) return;
   clearTimeout(moveTimer);
   moveTimer = setTimeout(() => onZoomOrMove(), 300);
 }
@@ -1313,12 +1334,14 @@ async function onZoomOrMove() {
   if (mode === "building") {
     await loadBuildingMarkers();
     await loadBuildingFootprints();
-    await loadPointNotes();
   } else {
     buildingLayer.clearLayers();
+    lastBuildingLoadBounds = null;
+    lastBuildingLoadCityId = null;
     clearBuildingFootprints();
-    await loadPointNotes();
   }
+  const cityId = lockedCityId || activeCityId;
+  if (cityId && lastPointNotesCityId !== cityId) await loadPointNotes();
 }
 
 function setDistrictInteractive(interactive) {
@@ -1479,6 +1502,7 @@ async function loadPointNotes() {
   const cityId = lockedCityId || activeCityId;
   try {
     const notes = await api(`/api/notes?cityId=${cityId}`);
+    lastPointNotesCityId = cityId;
     pointLayer.clearLayers();
     const dotRadius = isCoarsePointer() ? 8 : 5;
     for (const n of notes) {
@@ -1640,11 +1664,9 @@ async function reloadDistrictColors() {
 
 async function loadBuildingMarkers() {
   if (!activeCityId) return;
-  if (mapAbort) {
-    /* keep previous abort for districts; use separate signal for buildings */
-  }
+  if (viewInside(lastBuildingLoadBounds) && lastBuildingLoadCityId === activeCityId) return;
   const ctrl = new AbortController();
-  const b = map.getBounds();
+  const b = loadBounds();
   const qs = new URLSearchParams({
     minLat: String(b.getSouth()),
     minLon: String(b.getWest()),
@@ -1657,6 +1679,8 @@ async function loadBuildingMarkers() {
     } catch { /* ignore */ }
   }
   const buildings = await api(`/api/cities/${activeCityId}/buildings?${qs}`, { signal: ctrl.signal });
+  lastBuildingLoadBounds = b;
+  lastBuildingLoadCityId = activeCityId;
   buildingLayer.clearLayers();
   for (const bld of buildings) {
     const score = buildingScores[bld.buildingId] ?? null;
@@ -1682,6 +1706,8 @@ async function loadBuildingMarkers() {
 
 function clearBuildingFootprints() {
   footprintLoadGen++;
+  lastFootprintLoadBounds = null;
+  lastFootprintLoadCityId = null;
   if (footprintLayer && map) map.removeLayer(footprintLayer);
   footprintLayer = null;
 }
@@ -1712,13 +1738,16 @@ async function loadBuildingFootprints() {
     clearBuildingFootprints();
     return;
   }
+  if (viewInside(lastFootprintLoadBounds) && lastFootprintLoadCityId === activeCityId) return;
   const gen = ++footprintLoadGen;
   const cityId = activeCityId;
-  const b = map.getBounds();
+  const b = loadBounds();
   const qs = footprintBoundsQs(b);
   try {
     const fc = await api(`/api/cities/${cityId}/building-footprints?${qs}`);
     if (gen !== footprintLoadGen) return;
+    lastFootprintLoadBounds = b;
+    lastFootprintLoadCityId = cityId;
     // Keep previous polygons visible until the new layer is ready (no blank flash)
     const prev = footprintLayer;
     let next = null;
@@ -1736,28 +1765,18 @@ async function loadBuildingFootprints() {
     }
     if (prev && map.hasLayer(prev)) map.removeLayer(prev);
     footprintLayer = next;
-    prefetchFootprintNeighbors(cityId, b);
   } catch {
     // Keep previous layer on failure
   }
 }
 
-/** ~matches server BuildingFootprintService.TileDeg — pad viewport to warm neighbor tiles. */
-const FOOTPRINT_TILE_DEG = 0.01;
-
-function footprintBoundsQs(bounds, padDeg = 0) {
+function footprintBoundsQs(bounds) {
   return new URLSearchParams({
-    minLat: String(bounds.getSouth() - padDeg),
-    minLon: String(bounds.getWest() - padDeg),
-    maxLat: String(bounds.getNorth() + padDeg),
-    maxLon: String(bounds.getEast() + padDeg),
+    minLat: String(bounds.getSouth()),
+    minLon: String(bounds.getWest()),
+    maxLat: String(bounds.getNorth()),
+    maxLon: String(bounds.getEast()),
   });
-}
-
-function prefetchFootprintNeighbors(cityId, bounds) {
-  // Fire-and-forget: expands bbox by one tile so adjacent Overpass tiles fill IMemoryCache
-  const qs = footprintBoundsQs(bounds, FOOTPRINT_TILE_DEG);
-  api(`/api/cities/${cityId}/building-footprints?${qs}`).catch(() => {});
 }
 
 async function onFootprintClick(feature, layer) {
