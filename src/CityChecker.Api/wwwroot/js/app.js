@@ -33,6 +33,8 @@ let userLocationLayer = L.layerGroup();
 let userHeadingEl = null;
 /** @type {number | null} */
 let userHeadingDeg = null;
+/** @type {{ latlng: L.LatLng, accuracy: number, marker: L.Marker } | null} */
+let userLocationFix = null;
 let userOrientWired = false;
 let userOrientGotAbsolute = false;
 /** @type {L.LayerGroup} */
@@ -733,6 +735,7 @@ function initResetNorth() {
     rotateIdleTimer = setTimeout(() => {
       mapRotating = false;
       updateResetNorthBtn();
+      refreshUserLocationIcon();
       scheduleMapUpdate();
       scheduleOtodomReload();
     }, 160);
@@ -792,6 +795,34 @@ function bindUserHeadingEl(marker) {
   if (!userHeadingEl) requestAnimationFrame(hook);
 }
 
+function metersToPx(latlng, meters) {
+  const a = map.latLngToContainerPoint(latlng);
+  const north = L.latLng(latlng.lat + meters / 111111, latlng.lng);
+  return Math.max(6, a.distanceTo(map.latLngToContainerPoint(north)));
+}
+
+function userLocationIcon(latlng, accuracyM) {
+  const r = metersToPx(latlng, accuracyM);
+  const side = Math.max(96, Math.ceil(r * 2 + 8));
+  const half = side / 2;
+  return L.divIcon({
+    className: "user-heading-icon",
+    iconSize: [side, side],
+    iconAnchor: [half, half],
+    html:
+      `<div class="user-loc-box" style="width:${side}px;height:${side}px">` +
+      `<div class="user-accuracy-ring" style="width:${r * 2}px;height:${r * 2}px;margin:${-r}px 0 0 ${-r}px"></div>` +
+      `<div class="user-heading-rot"><div class="user-heading-cone" aria-hidden="true"></div><div class="user-heading-dot"></div></div>` +
+      `</div>`,
+  });
+}
+
+function refreshUserLocationIcon() {
+  if (!userLocationFix || !map || mapRotating) return;
+  userLocationFix.marker.setIcon(userLocationIcon(userLocationFix.latlng, userLocationFix.accuracy));
+  bindUserHeadingEl(userLocationFix.marker);
+}
+
 function initLocateMe() {
   const btn = document.getElementById("locate-me-btn");
   if (!btn || !map || btn.dataset.wired) return;
@@ -804,25 +835,13 @@ function initLocateMe() {
     if (typeof e.heading === "number" && e.heading >= 0 && userHeadingDeg == null) {
       userHeadingDeg = e.heading;
     }
-    L.circle(e.latlng, {
-      radius: e.accuracy,
-      color: "#4285F4",
-      weight: 1,
-      fillColor: "#4285F4",
-      fillOpacity: 0.15,
-      interactive: false,
-    }).addTo(userLocationLayer);
     const marker = L.marker(e.latlng, {
       interactive: false,
       keyboard: false,
       zIndexOffset: 1200,
-      icon: L.divIcon({
-        className: "user-heading-icon",
-        iconSize: [96, 96],
-        iconAnchor: [48, 48],
-        html: '<div class="user-heading-rot"><div class="user-heading-cone" aria-hidden="true"></div><div class="user-heading-dot"></div></div>',
-      }),
+      icon: userLocationIcon(e.latlng, e.accuracy),
     }).addTo(userLocationLayer);
+    userLocationFix = { latlng: e.latlng, accuracy: e.accuracy, marker };
     bindUserHeadingEl(marker);
   });
 
@@ -830,6 +849,8 @@ function initLocateMe() {
     setLocateBusy(false);
     alert(t("locateFail"));
   });
+
+  map.on("zoomend", refreshUserLocationIcon);
 
   btn.addEventListener("click", async () => {
     if (!map || btn.disabled) return;
@@ -1247,8 +1268,30 @@ function fitPolandView() {
   map.fitBounds(POLAND_VIEW_BOUNDS, { padding: [16, 16], maxZoom: 8, animate: false });
 }
 
+function glueVectorsToRotatePane() {
+  // leaflet-rotate CSS-rotates overlayPane with tiles, then also binds rotate→Renderer._update
+  // which redraws SVG in a second transform. That is the ghost/jerk (houses, GPS circle).
+  const proto = L.Renderer.prototype;
+  if (proto._ccNoRotateUpdate) return;
+  proto._ccNoRotateUpdate = true;
+  const getEvents = proto.getEvents;
+  proto.getEvents = function () {
+    const ev = getEvents.call(this);
+    delete ev.rotate;
+    return ev;
+  };
+  const onAdd = proto.onAdd;
+  proto.onAdd = function () {
+    const ret = onAdd.apply(this, arguments);
+    this._container?.classList.remove("leaflet-zoom-animated");
+    if (this._map) this._map.off("rotate", this._update, this);
+    return ret;
+  };
+}
+
 function initMap() {
   if (map) return;
+  glueVectorsToRotatePane();
   map = L.map("map", {
     center: POLAND_CENTER,
     zoom: 7,
