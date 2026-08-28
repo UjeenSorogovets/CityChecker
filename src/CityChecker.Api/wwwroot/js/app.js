@@ -75,6 +75,8 @@ let formPointCoords = null;
 let formPhotoUrls = [];
 let cloudinaryCloud = "";
 let cloudinaryPreset = "";
+let googleClientIdCfg = "";
+let googleIdInited = false;
 const FAB_DRAG_MIN_PX = 8;
 const SHEET_DRAG_THRESHOLD = 40;
 const SHEET_SNAP_ORDER = ["peek", "half", "full"];
@@ -889,6 +891,7 @@ async function initAuth() {
   const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
   cloudinaryCloud = cfg.cloudinaryCloudName || "";
   cloudinaryPreset = cfg.cloudinaryUploadPreset || "";
+  googleClientIdCfg = cfg.googleClientId || "";
 
   // Wire password form immediately — do not wait for Google GIS (that caused GET submits).
   form.onsubmit = async (e) => {
@@ -933,43 +936,55 @@ async function initAuth() {
     }
   }
 
-  wireGoogle(cfg.googleClientId);
+  wireGoogle();
 }
 
-function wireGoogle(clientId) {
+function wireGoogle() {
+  const clientId = googleClientIdCfg;
+  if (!clientId || String(clientId).includes("YOUR_GOOGLE")) return;
+  if (els.authGate.classList.contains("hidden")) return;
+
+  let gisTries = 0;
   const tryInit = () => {
-    const canGoogle = clientId && !String(clientId).includes("YOUR_GOOGLE") && window.google?.accounts?.id;
-    if (!canGoogle) {
-      if (!window.google?.accounts?.id) setTimeout(tryInit, 50);
+    if (els.authGate.classList.contains("hidden")) return;
+    if (!window.google?.accounts?.id) {
+      if (gisTries++ < 200) setTimeout(tryInit, 50);
       return;
     }
     const orEl = document.getElementById("auth-or");
     if (orEl) orEl.classList.remove("hidden");
-    window.google.accounts.id.initialize({
-      client_id: clientId,
-      callback: async (response) => {
-        try {
-          const res = await fetch("/api/auth/google", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ credential: response.credential }),
-          });
-          const body = await res.json().catch(() => ({}));
-          if (!res.ok) throw { message: body.error || t("authFailed"), status: res.status, body };
-          setToken(body.token);
-          await api("/api/cities");
-          await refreshNotesAccess();
-          showApp();
-        } catch (err) {
-          showAuthError(err);
-          clearToken();
-        }
-      },
-    });
-    window.google.accounts.id.renderButton(document.getElementById("google-btn"), {
+    const host = document.getElementById("google-btn");
+    if (!host) return;
+    if (!googleIdInited) {
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: async (response) => {
+          try {
+            const res = await fetch("/api/auth/google", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ credential: response.credential }),
+            });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) throw { message: body.error || t("authFailed"), status: res.status, body };
+            setToken(body.token);
+            await api("/api/cities");
+            await refreshNotesAccess();
+            showApp();
+          } catch (err) {
+            showAuthError(err);
+            clearToken();
+          }
+        },
+      });
+      googleIdInited = true;
+    }
+    host.innerHTML = "";
+    window.google.accounts.id.renderButton(host, {
       theme: "outline",
       size: "large",
       width: 280,
+      type: "standard",
     });
   };
   tryInit();
@@ -995,6 +1010,7 @@ function showAuthError(err) {
     els.authError.textContent = err?.message || t("authFailed");
   }
   els.authError.classList.remove("hidden");
+  requestAnimationFrame(() => wireGoogle());
 }
 
 async function refreshNotesAccess() {
