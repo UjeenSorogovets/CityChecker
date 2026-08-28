@@ -33,6 +33,7 @@ services:
       Import__LodzDistrictsPolygonsPath: /app/DataImports/lodz-osiedla-polygons.json
       Offers__AllowedEmails: ${OFFERS_ALLOWED_EMAILS:-}
       Offers__IsUpdateOffers: ${OFFERS_IS_UPDATE_OFFERS:-false}
+      Notes__AdminEmails: ${NOTES_ADMIN_EMAILS:-}
     volumes:
       - ./DataImports:/app/DataImports:ro
     depends_on:

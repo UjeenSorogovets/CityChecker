@@ -53,6 +53,7 @@
 | `districts_import_raw` | Transient Łódź CSV staging |
 
 **Offers access:** `Offers:AllowedEmails` (comma-separated, case-insensitive). Empty = deny all. Checked on `/api/housing/offers*`, `/api/housing/otodom/*`. JWT may carry `email` claim (login/register/Google); password users also resolved via `Users` table.  
+**Notes admin:** `Notes:AdminEmails` — may edit/delete any note; others only their own (`AuthorGoogleId` = JWT `sub`). Checked on `PUT`/`DELETE /api/notes/{id}`; UI via `GET /api/notes/access`.  
 **Update offers:** `Offers:IsUpdateOffers` (default `false`) — UI + `/otodom/pins/refresh` gated separately from view access.
 
 ## API map
@@ -90,7 +91,7 @@
 |--------|-------|
 | `appsettings.json` | DB, Google, Nominatim, Import paths; `AllowedHosts: *`; CORS `:8080`, `:5097` |
 | `appsettings.Production.json` | `AllowedHosts` ujeen.pl; HTTPS CORS |
-| `.env` / compose | `AUTH_JWT_SECRET`, `GOOGLE_*`, `DOMAIN`, `APP_PUBLIC_BASE_URL`, `CONTACT_EMAIL`, optional `SSH_*` |
+| `.env` / compose | `AUTH_JWT_SECRET`, `GOOGLE_*`, `DOMAIN`, `APP_PUBLIC_BASE_URL`, `CONTACT_EMAIL`, `NOTES_ADMIN_EMAILS`, optional `SSH_*` |
 | Local compose | `Development`, API **8080** published, `App__PublicBaseUrl=http://localhost:8080` |
 | Prod compose | `Production`, Caddy **80/443**, API internal only |
 

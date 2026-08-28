@@ -1,4 +1,4 @@
-import { api, getToken, setToken, clearToken, isTokenExpired } from "./api.js";
+import { api, getToken, setToken, clearToken, isTokenExpired, getUserIdFromToken } from "./api.js";
 import { applyI18n, t, toggleLang } from "./i18n.js";
 import { initHousing } from "./housing.js";
 import { createRuVoiceInput, isVoiceInputSupported } from "./voice-input.js";
@@ -46,6 +46,10 @@ let lockedCityId = null;
 let selectedDistrictId = null;
 let context = null;
 let editingNoteId = null;
+/** Current user sub from JWT; refreshed on login. */
+let currentUserId = getUserIdFromToken();
+/** Admin emails may edit/delete any note (from GET /api/notes/access). */
+let notesAdmin = false;
 /** @type {object | null} */
 let pendingMoveNote = null;
 /** @type {"comfort"|"environment"} */
@@ -895,6 +899,7 @@ async function initAuth() {
       setToken(body.token);
       history.replaceState(null, "", location.pathname);
       await api("/api/cities");
+      await refreshNotesAccess();
       showApp();
     } catch (err) {
       showAuthError(err);
@@ -942,6 +947,7 @@ function wireGoogle(clientId) {
           if (!res.ok) throw { message: body.error || t("authFailed"), status: res.status, body };
           setToken(body.token);
           await api("/api/cities");
+          await refreshNotesAccess();
           showApp();
         } catch (err) {
           showAuthError(err);
@@ -980,6 +986,22 @@ function showAuthError(err) {
   els.authError.classList.remove("hidden");
 }
 
+async function refreshNotesAccess() {
+  try {
+    const access = await api("/api/notes/access");
+    currentUserId = access?.userId || getUserIdFromToken();
+    notesAdmin = !!access?.isAdmin;
+  } catch {
+    currentUserId = getUserIdFromToken();
+    notesAdmin = false;
+  }
+}
+
+function canModifyNote(note) {
+  if (!note?.authorGoogleId || !currentUserId) return false;
+  return note.authorGoogleId === currentUserId || notesAdmin;
+}
+
 async function showApp() {
   els.authGate.classList.add("hidden");
   els.app.classList.remove("hidden");
@@ -987,6 +1009,7 @@ async function showApp() {
   applyI18n();
   initMap();
   initSheet();
+  await refreshNotesAccess();
   cities = await api("/api/cities");
   wireCityUi();
   updateZoomLabel();
@@ -1523,6 +1546,7 @@ function setMoveModeUi(on) {
 }
 
 function startPointMove(n) {
+  if (!canModifyNote(n)) return;
   if (pendingMoveNote && pendingMoveNote.noteId === n.noteId) {
     cancelPointMove();
     refreshSheet();
@@ -1907,13 +1931,14 @@ async function refreshSheet() {
       const radiusMeta = n.radiusMeters != null ? ` · ${n.radiusMeters}m` : "";
       const canMove = n.level === "Point" || (n.lat != null && n.lon != null);
       const movingThis = pendingMoveNote && pendingMoveNote.noteId === n.noteId;
+      const canModify = canModifyNote(n);
       li.innerHTML = `
         <div><span class="score">${n.scoreOverall}/10</span><span class="meta">${n.level}${radiusMeta}</span></div>
         <p></p>
         <div class="note-actions">
-          ${canMove ? `<button type="button" class="btn ghost move">${movingThis ? t("cancel") : t("moveNote")}</button>` : ""}
-          <button type="button" class="btn ghost edit">${t("editNote")}</button>
-          <button type="button" class="btn ghost danger del">${t("delete")}</button>
+          ${canModify && canMove ? `<button type="button" class="btn ghost move">${movingThis ? t("cancel") : t("moveNote")}</button>` : ""}
+          ${canModify ? `<button type="button" class="btn ghost edit">${t("editNote")}</button>` : ""}
+          ${canModify ? `<button type="button" class="btn ghost danger del">${t("delete")}</button>` : ""}
         </div>`;
       li.querySelector("p").textContent = n.text;
       const photoUrls = parsePhotoUrls(n.photoUrls);
@@ -1934,9 +1959,15 @@ async function refreshSheet() {
         li.querySelector("p").after(row);
       }
       li.querySelector(".move")?.addEventListener("click", () => startPointMove(n));
-      li.querySelector(".edit").onclick = () => openNoteForm(n);
-      li.querySelector(".del").onclick = async () => {
-        await api(`/api/notes/${n.noteId}`, { method: "DELETE" });
+      li.querySelector(".edit")?.addEventListener("click", () => openNoteForm(n));
+      li.querySelector(".del")?.addEventListener("click", async () => {
+        try {
+          await api(`/api/notes/${n.noteId}`, { method: "DELETE" });
+        } catch (err) {
+          if (err.status === 403) alert(t("noteModifyDenied"));
+          else throw err;
+          return;
+        }
         await refreshSheet();
         await reloadDistrictColors();
         await loadPointNotes();
@@ -2016,6 +2047,7 @@ async function uploadNotePhoto(file) {
 }
 
 function openNoteForm(note = null) {
+  if (note && !canModifyNote(note)) return;
   editingNoteId = note?.noteId ?? null;
   if (note?.lat != null && note?.lon != null) {
     formPointCoords = { lat: note.lat, lon: note.lon };
@@ -2132,10 +2164,16 @@ els.form.addEventListener("submit", async (e) => {
   body.photoUrls = formPhotoUrls.length ? formPhotoUrls.join(",") : null;
 
   let saved;
-  if (editingNoteId) {
-    saved = await api(`/api/notes/${editingNoteId}`, { method: "PUT", body: JSON.stringify(body) });
-  } else {
-    saved = await api("/api/notes", { method: "POST", body: JSON.stringify(body) });
+  try {
+    if (editingNoteId) {
+      saved = await api(`/api/notes/${editingNoteId}`, { method: "PUT", body: JSON.stringify(body) });
+    } else {
+      saved = await api("/api/notes", { method: "POST", body: JSON.stringify(body) });
+    }
+  } catch (err) {
+    if (err.status === 403) alert(t("noteModifyDenied"));
+    else throw err;
+    return;
   }
   stopNoteVoice();
   els.dialog.close();

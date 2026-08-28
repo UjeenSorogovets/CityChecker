@@ -22,6 +22,17 @@ public static class NoteEndpoints
     {
         var group = app.MapGroup("/api/notes").RequireAuthorization();
 
+        group.MapGet("/access", async (ClaimsPrincipal user, IConfiguration config, AppDbContext db) =>
+        {
+            if (user.EnsureOwner(config) is { } err) return err;
+            var email = await user.ResolveUserEmailAsync(db);
+            return Results.Ok(new
+            {
+                userId = user.GetUserId(),
+                isAdmin = NotesAccess.IsAdmin(config, email),
+            });
+        });
+
         group.MapGet("/", async (
             ClaimsPrincipal user,
             IConfiguration config,
@@ -86,8 +97,8 @@ public static class NoteEndpoints
             var googleId = user.GetGoogleUserId()!;
             var note = await db.Notes.FirstOrDefaultAsync(n => n.NoteId == noteId);
             if (note is null) return Results.NotFound();
-            if (!string.Equals(note.AuthorGoogleId, googleId, StringComparison.Ordinal))
-                return Results.Forbid();
+            if (await user.EnsureCanModifyNoteAsync(db, config, note.AuthorGoogleId) is { } denied)
+                return denied;
 
             var built = await FromWriteAsync(body, googleId, db);
             note.Level = built.Level;
@@ -112,11 +123,10 @@ public static class NoteEndpoints
         group.MapDelete("/{noteId:guid}", async (Guid noteId, ClaimsPrincipal user, IConfiguration config, AppDbContext db) =>
         {
             if (user.EnsureOwner(config) is { } err) return err;
-            var googleId = user.GetGoogleUserId()!;
             var note = await db.Notes.FirstOrDefaultAsync(n => n.NoteId == noteId);
             if (note is null) return Results.NotFound();
-            if (!string.Equals(note.AuthorGoogleId, googleId, StringComparison.Ordinal))
-                return Results.Forbid();
+            if (await user.EnsureCanModifyNoteAsync(db, config, note.AuthorGoogleId) is { } denied)
+                return denied;
 
             db.Notes.Remove(note);
             await db.SaveChangesAsync();

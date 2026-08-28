@@ -50,4 +50,22 @@ public static class AuthExtensions
             return Results.Json(new { error = "Offers are not available for this account." }, statusCode: 403);
         return null;
     }
+
+    public static async Task<bool> CanModifyNoteAsync(
+        this ClaimsPrincipal user, AppDbContext db, IConfiguration config, string noteAuthorId)
+    {
+        var userId = user.GetUserId();
+        if (userId is null) return false;
+        if (string.Equals(noteAuthorId, userId, StringComparison.Ordinal)) return true;
+        var email = await user.ResolveUserEmailAsync(db);
+        return NotesAccess.IsAdmin(config, email);
+    }
+
+    public static async Task<IResult?> EnsureCanModifyNoteAsync(
+        this ClaimsPrincipal user, AppDbContext db, IConfiguration config, string noteAuthorId)
+    {
+        if (user.GetUserId() is null) return Results.Unauthorized();
+        if (await user.CanModifyNoteAsync(db, config, noteAuthorId)) return null;
+        return Results.Json(new { error = "You can only edit or delete your own notes." }, statusCode: 403);
+    }
 }
