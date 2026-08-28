@@ -733,6 +733,7 @@ function initResetNorth() {
     rotateIdleTimer = setTimeout(() => {
       mapRotating = false;
       updateResetNorthBtn();
+      syncMapVectors();
       scheduleMapUpdate();
       scheduleOtodomReload();
     }, 160);
@@ -747,6 +748,7 @@ function initResetNorth() {
     map.setBearing(0);
     applyUserHeading();
     updateResetNorthBtn();
+    syncMapVectors();
     scheduleMapUpdate();
     scheduleOtodomReload();
   });
@@ -1260,6 +1262,10 @@ function initMap() {
     shiftKeyRotate: true,
     bearing: 0,
     rotateControl: false,
+    zoomAnimation: false,
+    markerZoomAnimation: false,
+    fadeAnimation: false,
+    preferCanvas: true,
   });
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
@@ -1273,7 +1279,10 @@ function initMap() {
   pointLayer.addTo(map);
   userLocationLayer.addTo(map);
 
-  map.on("zoomend", scheduleMapUpdate);
+  map.on("zoomend", () => {
+    syncMapVectors();
+    scheduleMapUpdate();
+  });
   map.on("moveend", scheduleMapUpdate);
   map.on("click", onMapClick);
 
@@ -1299,6 +1308,19 @@ function loadBounds() {
 
 function viewInside(loaded) {
   return Boolean(loaded && map && loaded.contains(map.getBounds()));
+}
+
+/** leaflet-rotate: redraw vector canvases so they stay glued to tiles after zoom/rotate. */
+function syncMapVectors() {
+  if (!map) return;
+  const seen = new Set();
+  map.eachLayer((layer) => {
+    const r = layer._renderer;
+    if (r && !seen.has(r) && typeof r._update === "function") {
+      seen.add(r);
+      r._update();
+    }
+  });
 }
 
 function scheduleMapUpdate() {
@@ -1365,8 +1387,7 @@ function setDistrictInteractive(interactive) {
   applyDistrictStyles(on);
   if (!districtLayer) return;
   districtLayer.eachLayer((layer) => {
-    const el = layer.getElement?.() || layer._path;
-    if (el) el.style.pointerEvents = on ? "auto" : "none";
+    layer.options.interactive = on;
   });
 }
 
@@ -1390,7 +1411,7 @@ function districtBaseStyle(feature, interactive) {
       opacity: 1,
       lineJoin: "round",
       lineCap: "round",
-      className: "district-poly district-selected",
+      className: "district-poly",
     };
   }
 
