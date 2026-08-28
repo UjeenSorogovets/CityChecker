@@ -1975,7 +1975,7 @@ async function refreshSheet() {
           await refreshCityAggregates(activeCityId || context.cityId);
           await loadBuildingMarkers();
         }
-      };
+      });
       els.notesList.appendChild(li);
     }
     if (isMobileSheet() && list.length > 2) setSheetSnap("full");
