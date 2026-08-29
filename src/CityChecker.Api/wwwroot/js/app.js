@@ -1,6 +1,6 @@
 import { api, getToken, setToken, clearToken, isTokenExpired, getUserIdFromToken } from "./api.js";
 import { applyI18n, t, toggleLang } from "./i18n.js";
-import { initHousing, scheduleOtodomReload } from "./housing.js";
+import { initHousing } from "./housing.js";
 import { createRuVoiceInput, isVoiceInputSupported } from "./voice-input.js";
 
 const ZOOM_CITY = 10;
@@ -33,8 +33,6 @@ let userLocationLayer = L.layerGroup();
 let userHeadingEl = null;
 /** @type {number | null} */
 let userHeadingDeg = null;
-/** @type {{ latlng: L.LatLng, accuracy: number, marker: L.Marker } | null} */
-let userLocationFix = null;
 let userOrientWired = false;
 let userOrientGotAbsolute = false;
 /** @type {L.LayerGroup} */
@@ -61,26 +59,12 @@ const DEFAULT_BUILDING_RADIUS = 15;
 const MIN_BUILDING_RADIUS = 5;
 const MIN_POINT_RADIUS = 50;
 const MAX_NOTE_PHOTOS = 4;
-/** Leaflet LatLngBounds.pad — extra margin so a short pan stays inside last fetch. */
-const VIEW_LOAD_PAD = 0.25;
-let mapRotating = false;
-let rotateStartZoom = null;
-let rotateIdleTimer = null;
-/** @type {L.LatLngBounds | null} */
-let lastBuildingLoadBounds = null;
-let lastBuildingLoadCityId = null;
-/** @type {L.LatLngBounds | null} */
-let lastFootprintLoadBounds = null;
-let lastFootprintLoadCityId = null;
-let lastPointNotesCityId = null;
 /** Coords for the note being created/edited (Point level). */
 let formPointCoords = null;
 /** @type {string[]} */
 let formPhotoUrls = [];
 let cloudinaryCloud = "";
 let cloudinaryPreset = "";
-let googleClientIdCfg = "";
-let googleIdInited = false;
 const FAB_DRAG_MIN_PX = 8;
 const SHEET_DRAG_THRESHOLD = 40;
 const SHEET_SNAP_ORDER = ["peek", "half", "full"];
@@ -728,27 +712,30 @@ function initResetNorth() {
   if (!btn || !map || btn.dataset.wired) return;
   btn.dataset.wired = "1";
 
-  // leaflet-rotate 0.2.8 only fires "rotate" (no rotatestart/rotateend)
+  // leaflet-rotate 0.2.8 only fires "rotate" (no rotatestart/rotateend) — debounce idle to unhide
+  let rotateHideTimer = null;
+  const setRotating = (on) => {
+    map.getContainer().classList.toggle("map-rotating", on);
+  };
+
   map.on("rotate", () => {
-    clearTimeout(moveTimer);
-    clearTimeout(rotateIdleTimer);
-    rotateIdleTimer = setTimeout(finishRotateGesture, 200);
+    setRotating(true);
+    clearTimeout(rotateHideTimer);
+    rotateHideTimer = setTimeout(() => {
+      setRotating(false);
+      updateResetNorthBtn();
+    }, 160);
     applyUserHeading();
     updateResetNorthBtn();
   });
 
   btn.addEventListener("click", () => {
     if (!map?.setBearing) return;
-    clearTimeout(rotateIdleTimer);
-    map._ccResetNorth = true;
-    mapRotating = false;
-    rotateStartZoom = null;
+    clearTimeout(rotateHideTimer);
     map.setBearing(0);
-    map._ccResetNorth = false;
+    setRotating(false);
     applyUserHeading();
     updateResetNorthBtn();
-    scheduleMapUpdate();
-    scheduleOtodomReload();
   });
 
   updateResetNorthBtn();
@@ -792,34 +779,6 @@ function bindUserHeadingEl(marker) {
   if (!userHeadingEl) requestAnimationFrame(hook);
 }
 
-function metersToPx(latlng, meters) {
-  const a = map.latLngToContainerPoint(latlng);
-  const north = L.latLng(latlng.lat + meters / 111111, latlng.lng);
-  return Math.max(6, a.distanceTo(map.latLngToContainerPoint(north)));
-}
-
-function userLocationIcon(latlng, accuracyM) {
-  const r = metersToPx(latlng, accuracyM);
-  const side = Math.max(96, Math.ceil(r * 2 + 8));
-  const half = side / 2;
-  return L.divIcon({
-    className: "user-heading-icon",
-    iconSize: [side, side],
-    iconAnchor: [half, half],
-    html:
-      `<div class="user-loc-box" style="width:${side}px;height:${side}px">` +
-      `<div class="user-accuracy-ring" style="width:${r * 2}px;height:${r * 2}px;margin:${-r}px 0 0 ${-r}px"></div>` +
-      `<div class="user-heading-rot"><div class="user-heading-cone" aria-hidden="true"></div><div class="user-heading-dot"></div></div>` +
-      `</div>`,
-  });
-}
-
-function refreshUserLocationIcon() {
-  if (!userLocationFix || !map || mapRotating) return;
-  userLocationFix.marker.setIcon(userLocationIcon(userLocationFix.latlng, userLocationFix.accuracy));
-  bindUserHeadingEl(userLocationFix.marker);
-}
-
 function initLocateMe() {
   const btn = document.getElementById("locate-me-btn");
   if (!btn || !map || btn.dataset.wired) return;
@@ -832,13 +791,25 @@ function initLocateMe() {
     if (typeof e.heading === "number" && e.heading >= 0 && userHeadingDeg == null) {
       userHeadingDeg = e.heading;
     }
+    L.circle(e.latlng, {
+      radius: e.accuracy,
+      color: "#4285F4",
+      weight: 1,
+      fillColor: "#4285F4",
+      fillOpacity: 0.15,
+      interactive: false,
+    }).addTo(userLocationLayer);
     const marker = L.marker(e.latlng, {
       interactive: false,
       keyboard: false,
       zIndexOffset: 1200,
-      icon: userLocationIcon(e.latlng, e.accuracy),
+      icon: L.divIcon({
+        className: "user-heading-icon",
+        iconSize: [96, 96],
+        iconAnchor: [48, 48],
+        html: '<div class="user-heading-rot"><div class="user-heading-cone" aria-hidden="true"></div><div class="user-heading-dot"></div></div>',
+      }),
     }).addTo(userLocationLayer);
-    userLocationFix = { latlng: e.latlng, accuracy: e.accuracy, marker };
     bindUserHeadingEl(marker);
   });
 
@@ -846,8 +817,6 @@ function initLocateMe() {
     setLocateBusy(false);
     alert(t("locateFail"));
   });
-
-  map.on("zoomend", refreshUserLocationIcon);
 
   btn.addEventListener("click", async () => {
     if (!map || btn.disabled) return;
@@ -909,7 +878,6 @@ async function initAuth() {
   const cfg = await fetch("/api/config").then((r) => r.json()).catch(() => ({}));
   cloudinaryCloud = cfg.cloudinaryCloudName || "";
   cloudinaryPreset = cfg.cloudinaryUploadPreset || "";
-  googleClientIdCfg = cfg.googleClientId || "";
 
   // Wire password form immediately — do not wait for Google GIS (that caused GET submits).
   form.onsubmit = async (e) => {
@@ -954,55 +922,43 @@ async function initAuth() {
     }
   }
 
-  wireGoogle();
+  wireGoogle(cfg.googleClientId);
 }
 
-function wireGoogle() {
-  const clientId = googleClientIdCfg;
-  if (!clientId || String(clientId).includes("YOUR_GOOGLE")) return;
-  if (els.authGate.classList.contains("hidden")) return;
-
-  let gisTries = 0;
+function wireGoogle(clientId) {
   const tryInit = () => {
-    if (els.authGate.classList.contains("hidden")) return;
-    if (!window.google?.accounts?.id) {
-      if (gisTries++ < 200) setTimeout(tryInit, 50);
+    const canGoogle = clientId && !String(clientId).includes("YOUR_GOOGLE") && window.google?.accounts?.id;
+    if (!canGoogle) {
+      if (!window.google?.accounts?.id) setTimeout(tryInit, 50);
       return;
     }
     const orEl = document.getElementById("auth-or");
     if (orEl) orEl.classList.remove("hidden");
-    const host = document.getElementById("google-btn");
-    if (!host) return;
-    if (!googleIdInited) {
-      window.google.accounts.id.initialize({
-        client_id: clientId,
-        callback: async (response) => {
-          try {
-            const res = await fetch("/api/auth/google", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ credential: response.credential }),
-            });
-            const body = await res.json().catch(() => ({}));
-            if (!res.ok) throw { message: body.error || t("authFailed"), status: res.status, body };
-            setToken(body.token);
-            await api("/api/cities");
-            await refreshNotesAccess();
-            showApp();
-          } catch (err) {
-            showAuthError(err);
-            clearToken();
-          }
-        },
-      });
-      googleIdInited = true;
-    }
-    host.innerHTML = "";
-    window.google.accounts.id.renderButton(host, {
+    window.google.accounts.id.initialize({
+      client_id: clientId,
+      callback: async (response) => {
+        try {
+          const res = await fetch("/api/auth/google", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ credential: response.credential }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) throw { message: body.error || t("authFailed"), status: res.status, body };
+          setToken(body.token);
+          await api("/api/cities");
+          await refreshNotesAccess();
+          showApp();
+        } catch (err) {
+          showAuthError(err);
+          clearToken();
+        }
+      },
+    });
+    window.google.accounts.id.renderButton(document.getElementById("google-btn"), {
       theme: "outline",
       size: "large",
       width: 280,
-      type: "standard",
     });
   };
   tryInit();
@@ -1028,7 +984,6 @@ function showAuthError(err) {
     els.authError.textContent = err?.message || t("authFailed");
   }
   els.authError.classList.remove("hidden");
-  requestAnimationFrame(() => wireGoogle());
 }
 
 async function refreshNotesAccess() {
@@ -1265,76 +1220,8 @@ function fitPolandView() {
   map.fitBounds(POLAND_VIEW_BOUNDS, { padding: [16, 16], maxZoom: 8, animate: false });
 }
 
-function finishRotateGesture() {
-  const zoomChanged = map && rotateStartZoom != null && map.getZoom() !== rotateStartZoom;
-  mapRotating = false;
-  rotateStartZoom = null;
-  updateResetNorthBtn();
-  refreshUserLocationIcon();
-  if (zoomChanged) {
-    map.eachLayer((layer) => {
-      const r = layer._renderer;
-      if (r && typeof r._update === "function") r._update();
-    });
-  }
-  scheduleMapUpdate();
-  scheduleOtodomReload();
-}
-
-function glueVectorsToRotatePane() {
-  const proto = L.Renderer.prototype;
-  if (proto._ccNoRotateUpdate) return;
-  proto._ccNoRotateUpdate = true;
-
-  const getEvents = proto.getEvents;
-  proto.getEvents = function () {
-    const ev = getEvents.call(this);
-    delete ev.rotate;
-    return ev;
-  };
-
-  const skipIfRotating = (fn) =>
-    function () {
-      if (mapRotating) return;
-      return fn.apply(this, arguments);
-    };
-
-  proto._update = skipIfRotating(proto._update);
-  proto._updateTransform = skipIfRotating(proto._updateTransform);
-  if (proto._reset) proto._reset = skipIfRotating(proto._reset);
-  if (proto._onZoom) proto._onZoom = skipIfRotating(proto._onZoom);
-  if (L.SVG?.prototype?._update) L.SVG.prototype._update = skipIfRotating(L.SVG.prototype._update);
-  if (L.Canvas?.prototype?._update) L.Canvas.prototype._update = skipIfRotating(L.Canvas.prototype._update);
-
-  const onAdd = proto.onAdd;
-  proto.onAdd = function () {
-    const ret = onAdd.apply(this, arguments);
-    this._container?.classList.remove("leaflet-zoom-animated");
-    this._zoomAnimated = false;
-    if (this._map) this._map.off("rotate", this._update, this);
-    return ret;
-  };
-
-  // setBearing fires rotate; freeze SVG before any renderer listener.
-  const setBearing = L.Map.prototype.setBearing;
-  L.Map.prototype.setBearing = function (deg) {
-    if (this._rotate && !this._ccResetNorth && this._loaded) {
-      const next = L.Util.wrapNum(deg, [0, 360]);
-      const curr = L.Util.wrapNum(this.getBearing(), [0, 360]);
-      let delta = Math.abs(next - curr) % 360;
-      if (delta > 180) delta = 360 - delta;
-      if (delta > 0.05) {
-        if (!mapRotating) rotateStartZoom = this.getZoom();
-        mapRotating = true;
-      }
-    }
-    return setBearing.apply(this, arguments);
-  };
-}
-
 function initMap() {
   if (map) return;
-  glueVectorsToRotatePane();
   map = L.map("map", {
     center: POLAND_CENTER,
     zoom: 7,
@@ -1346,9 +1233,6 @@ function initMap() {
     shiftKeyRotate: true,
     bearing: 0,
     rotateControl: false,
-    zoomAnimation: false,
-    markerZoomAnimation: false,
-    fadeAnimation: false,
   });
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
@@ -1378,20 +1262,10 @@ function initMap() {
     map,
     getActiveCityId: () => activeCityId,
     getContext: () => context,
-    isMapRotating: () => mapRotating,
   });
 }
 
-function loadBounds() {
-  return map.getBounds().pad(VIEW_LOAD_PAD);
-}
-
-function viewInside(loaded) {
-  return Boolean(loaded && map && loaded.contains(map.getBounds()));
-}
-
 function scheduleMapUpdate() {
-  if (mapRotating) return;
   clearTimeout(moveTimer);
   moveTimer = setTimeout(() => onZoomOrMove(), 300);
 }
@@ -1439,14 +1313,12 @@ async function onZoomOrMove() {
   if (mode === "building") {
     await loadBuildingMarkers();
     await loadBuildingFootprints();
+    await loadPointNotes();
   } else {
     buildingLayer.clearLayers();
-    lastBuildingLoadBounds = null;
-    lastBuildingLoadCityId = null;
     clearBuildingFootprints();
+    await loadPointNotes();
   }
-  const cityId = lockedCityId || activeCityId;
-  if (cityId && lastPointNotesCityId !== cityId) await loadPointNotes();
 }
 
 function setDistrictInteractive(interactive) {
@@ -1454,7 +1326,6 @@ function setDistrictInteractive(interactive) {
   applyDistrictStyles(on);
   if (!districtLayer) return;
   districtLayer.eachLayer((layer) => {
-    layer.options.interactive = on;
     const el = layer.getElement?.() || layer._path;
     if (el) el.style.pointerEvents = on ? "auto" : "none";
   });
@@ -1480,7 +1351,7 @@ function districtBaseStyle(feature, interactive) {
       opacity: 1,
       lineJoin: "round",
       lineCap: "round",
-      className: "district-poly",
+      className: "district-poly district-selected",
     };
   }
 
@@ -1608,7 +1479,6 @@ async function loadPointNotes() {
   const cityId = lockedCityId || activeCityId;
   try {
     const notes = await api(`/api/notes?cityId=${cityId}`);
-    lastPointNotesCityId = cityId;
     pointLayer.clearLayers();
     const dotRadius = isCoarsePointer() ? 8 : 5;
     for (const n of notes) {
@@ -1770,9 +1640,11 @@ async function reloadDistrictColors() {
 
 async function loadBuildingMarkers() {
   if (!activeCityId) return;
-  if (viewInside(lastBuildingLoadBounds) && lastBuildingLoadCityId === activeCityId) return;
+  if (mapAbort) {
+    /* keep previous abort for districts; use separate signal for buildings */
+  }
   const ctrl = new AbortController();
-  const b = loadBounds();
+  const b = map.getBounds();
   const qs = new URLSearchParams({
     minLat: String(b.getSouth()),
     minLon: String(b.getWest()),
@@ -1785,8 +1657,6 @@ async function loadBuildingMarkers() {
     } catch { /* ignore */ }
   }
   const buildings = await api(`/api/cities/${activeCityId}/buildings?${qs}`, { signal: ctrl.signal });
-  lastBuildingLoadBounds = b;
-  lastBuildingLoadCityId = activeCityId;
   buildingLayer.clearLayers();
   for (const bld of buildings) {
     const score = buildingScores[bld.buildingId] ?? null;
@@ -1812,8 +1682,6 @@ async function loadBuildingMarkers() {
 
 function clearBuildingFootprints() {
   footprintLoadGen++;
-  lastFootprintLoadBounds = null;
-  lastFootprintLoadCityId = null;
   if (footprintLayer && map) map.removeLayer(footprintLayer);
   footprintLayer = null;
 }
@@ -1844,16 +1712,13 @@ async function loadBuildingFootprints() {
     clearBuildingFootprints();
     return;
   }
-  if (viewInside(lastFootprintLoadBounds) && lastFootprintLoadCityId === activeCityId) return;
   const gen = ++footprintLoadGen;
   const cityId = activeCityId;
-  const b = loadBounds();
+  const b = map.getBounds();
   const qs = footprintBoundsQs(b);
   try {
     const fc = await api(`/api/cities/${cityId}/building-footprints?${qs}`);
     if (gen !== footprintLoadGen) return;
-    lastFootprintLoadBounds = b;
-    lastFootprintLoadCityId = cityId;
     // Keep previous polygons visible until the new layer is ready (no blank flash)
     const prev = footprintLayer;
     let next = null;
@@ -1871,18 +1736,28 @@ async function loadBuildingFootprints() {
     }
     if (prev && map.hasLayer(prev)) map.removeLayer(prev);
     footprintLayer = next;
+    prefetchFootprintNeighbors(cityId, b);
   } catch {
     // Keep previous layer on failure
   }
 }
 
-function footprintBoundsQs(bounds) {
+/** ~matches server BuildingFootprintService.TileDeg — pad viewport to warm neighbor tiles. */
+const FOOTPRINT_TILE_DEG = 0.01;
+
+function footprintBoundsQs(bounds, padDeg = 0) {
   return new URLSearchParams({
-    minLat: String(bounds.getSouth()),
-    minLon: String(bounds.getWest()),
-    maxLat: String(bounds.getNorth()),
-    maxLon: String(bounds.getEast()),
+    minLat: String(bounds.getSouth() - padDeg),
+    minLon: String(bounds.getWest() - padDeg),
+    maxLat: String(bounds.getNorth() + padDeg),
+    maxLon: String(bounds.getEast() + padDeg),
   });
+}
+
+function prefetchFootprintNeighbors(cityId, bounds) {
+  // Fire-and-forget: expands bbox by one tile so adjacent Overpass tiles fill IMemoryCache
+  const qs = footprintBoundsQs(bounds, FOOTPRINT_TILE_DEG);
+  api(`/api/cities/${cityId}/building-footprints?${qs}`).catch(() => {});
 }
 
 async function onFootprintClick(feature, layer) {

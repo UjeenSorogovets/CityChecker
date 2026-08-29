@@ -1,6 +1,6 @@
 # Frontend
 
-SPA: `src/CityChecker.Api/wwwroot/` — no bundler. Entry: `index.html` loads `app.js?v=svgrotate5` as ES module. Map rotation: **leaflet-rotate** 0.2.8 (CDN).
+SPA: `src/CityChecker.Api/wwwroot/` — no bundler. Entry: `index.html` loads `app.js?v=otodom1` as ES module. Map rotation: **leaflet-rotate** 0.2.8 (CDN).
 
 | File | Role |
 |------|------|
@@ -46,10 +46,8 @@ District GeoJSON loads via `mapAbort`; environment load uses separate **`envLoad
 - **Mobile:** two-finger twist  
 - **Desktop:** Shift + drag  
 - **Reset north:** `#reset-north-btn` in `#map-fabs` → `map.setBearing(0)`; disabled when bearing ≈ 0  
-- Locate heading cone: `applyUserHeading()` subtracts `map.getBearing()` so direction stays correct when the map is rotated  
-- Overlays stay visible while rotating (no `.map-rotating` hide). leaflet-rotate only fires `rotate`. Wrap `setBearing` to set `mapRotating` only after the map is loaded **and** bearing actually changed (constructor `setBearing(0)` must not freeze SVG). While rotating, skip Renderer `_update` / `_updateTransform` / `_onZoom`. After idle, `_update` only if zoom changed. Unbind Renderer `rotate`→`_update`.  
-- Vectors are **SVG in `rotatePane`** (same CSS rotate as tiles). Never `preferCanvas` with leaflet-rotate. While rotating, skip Renderer `_update` / `_updateTransform` / `_onZoom` (two-finger pan/zoom still fires those; redraw + CSS rotate = ghosts). After idle, `_update` only if zoom changed. Unbind Renderer `rotate`→`_update`.  
-- Buildings, footprints, and Otodom fetch `getBounds().pad(0.25)` and skip refetch while the view is still inside the last load  
+- Locate heading cone: `applyUserHeading()` subtracts `map.getBearing()` so direction stays correct when map is rotated  
+- During rotate: class `map-rotating` hides overlay/marker/risk panes (tiles stay). leaflet-rotate only fires `rotate` — hide is toggled on that event and cleared after ~160ms idle (no rotatestart/rotateend).  
 - Do not enable built-in `rotateControl` — custom button matches locate/FAB stack  
 
 ## Otodom listings overlay (topbar → Offers)
@@ -75,7 +73,7 @@ District GeoJSON loads via `mapAbort`; environment load uses separate **`envLoad
 - Tap point center dot → select note (sheet; no auto-open form)  
 - Tap district polygon → select district + housing slot  
 - Tap building marker → select building  
-- **Footprint pilots (Wołomin + Wrocław):** at building zoom (comfort), OSM footprints via `GET …/building-footprints` — served from PostGIS (`OsmBuildingFootprints`); first empty load may import via Overpass (Wołomin ~1–2 min; Wrocław per-osiedle, longer), then pans are DB-only. Request bbox is padded 25%; UI keeps prior polygons until the next load; skip refetch if the view is still inside the last padded bounds. Tap → reverse-geocode → `selectBuilding` → Add note.  
+- **Footprint pilots (Wołomin + Wrocław):** at building zoom (comfort), OSM footprints via `GET …/building-footprints` — served from PostGIS (`OsmBuildingFootprints`); first empty load may import via Overpass (Wołomin ~1–2 min; Wrocław per-osiedle, longer), then pans are DB-only. UI keeps prior polygons until the next load; prefetch pads bbox (cheap DB hits). Tap → reverse-geocode → `selectBuilding` → Add note.  
 - Tap empty map → city-level sheet, snap **peek**  
 - Drag `#place-note-fab` onto map → new point note; drop via `map.mouseEventToLatLng`  
 - Point influence circles (`L.circle`): `interactive: false`  
