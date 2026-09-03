@@ -1,0 +1,11 @@
+---
+description: All AI responses, code, comments, commits, and reasoning must be in English only
+alwaysApply: true
+---
+
+# English Only
+
+- **All** AI responses, thinking, explanations, and outputs must be in English.
+- Code comments, variable names, commit messages, docs — English only.
+- Even if the user writes in another language, respond in English.
+- Do not mix languages.

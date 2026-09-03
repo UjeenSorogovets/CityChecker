@@ -78,31 +78,30 @@
         <div class="env-legend-hint" data-i18n="envLegendHint">Light dashed ring ≈ possible reach. Filled wedge ≈ usual downwind plume (odor/emissions).</div>
       </div>
       <aside id="offers-panel" class="housing-panel">
-        <button type="button" id="otodom-refresh" class="btn primary" data-i18n="updateOffers">Update offers</button>
-        <div class="otodom-box">
-          <div class="otodom-filters">
+        <div class="flat-box">
+          <div class="flat-filters">
             <label>
-              <span data-i18n="otodomPriceMax">Price max (zł)</span>
-              <input type="number" id="otodom-price-max" min="0" step="10000" value="650000" />
+              <span data-i18n="flatPriceMax">Price max (zł)</span>
+              <input type="number" id="flat-price-max" min="0" step="10000" value="650000" />
             </label>
             <label>
-              <span data-i18n="otodomAreaMin">Area min (m²)</span>
-              <input type="number" id="otodom-area-min" min="0" step="1" value="50" />
+              <span data-i18n="flatAreaMin">Area min (m²)</span>
+              <input type="number" id="flat-area-min" min="0" step="1" value="50" />
             </label>
           </div>
-          <fieldset class="otodom-rooms">
-            <legend data-i18n="otodomRooms">Rooms</legend>
-            <label><input type="checkbox" name="otodom-room" value="TWO" checked /> 2</label>
-            <label><input type="checkbox" name="otodom-room" value="THREE" checked /> 3</label>
-            <label><input type="checkbox" name="otodom-room" value="FOUR" checked /> 4</label>
-            <label><input type="checkbox" name="otodom-room" value="FIVE" checked /> 5</label>
-            <label><input type="checkbox" name="otodom-room" value="SIX_OR_MORE" checked /> 6+</label>
+          <fieldset class="flat-rooms">
+            <legend data-i18n="flatRooms">Rooms</legend>
+            <label><input type="checkbox" name="flat-room" value="TWO" checked /> 2</label>
+            <label><input type="checkbox" name="flat-room" value="THREE" checked /> 3</label>
+            <label><input type="checkbox" name="flat-room" value="FOUR" checked /> 4</label>
+            <label><input type="checkbox" name="flat-room" value="FIVE" checked /> 5</label>
+            <label><input type="checkbox" name="flat-room" value="SIX_OR_MORE" checked /> 6+</label>
           </fieldset>
-          <label class="otodom-toggle">
-            <input type="checkbox" id="otodom-show" />
-            <span data-i18n="otodomShow">Show Otodom pins on map</span>
+          <label class="flat-toggle">
+            <input type="checkbox" id="flat-show" />
+            <span data-i18n="flatShow">Show flat pins on map</span>
           </label>
-          <p id="otodom-status" class="muted otodom-status" data-i18n="otodomHint">Shared cache for this city + filters. Enable pins to show; Update offers refreshes from Otodom for everyone.</p>
+          <p id="flat-status" class="muted flat-status" data-i18n="flatHint">Flat info from the database for this city and filters.</p>
         </div>
         <ul id="housing-offers-list" class="housing-list"></ul>
       </aside>
@@ -181,6 +180,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="/js/app.js?v=notesauth2"></script>
+  <script type="module" src="/js/app.js?v=flats1"></script>
 </body>
 </html>

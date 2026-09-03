@@ -11,6 +11,10 @@ services:
     ports: !reset []
     expose:
       - "8080"
+    # IPv6-only hosts: container DNS must return AAAA so Overpass/etc. are reachable
+    dns:
+      - 2001:4860:4860::8888
+      - 2606:4700:4700::1111
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       App__PublicBaseUrl: ${APP_PUBLIC_BASE_URL:-https://ujeen.pl}
@@ -35,3 +39,11 @@ services:
     depends_on:
       - api
     restart: unless-stopped
+
+networks:
+  default:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+        - subnet: fd00:c17c:4ecc:1::/64

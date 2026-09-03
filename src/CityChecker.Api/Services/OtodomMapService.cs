@@ -11,7 +11,7 @@ using Microsoft.Extensions.Caching.Memory;
 namespace CityChecker.Api.Services;
 
 /// <summary>
-/// Shared Otodom map pins: Postgres cache by city+filters; Refresh scrapes Next.js data endpoints.
+/// Flat info map pins: Postgres cache by city+filters (DB read only; live refresh disabled).
 /// </summary>
 public class OtodomMapService(
     AppDbContext db,
@@ -66,32 +66,17 @@ public class OtodomMapService(
 
         return new OtodomPinsResult(
             set.Status != "Failed",
-            set.Status == "Failed" ? (set.LastError ?? "Otodom refresh failed.") : null,
+            set.Status == "Failed" ? (set.LastError ?? "Pin refresh failed.") : null,
             pins,
             set.FetchedAt, set.TotalMatched, set.Listed, set.Status);
     }
 
-    public async Task<OtodomPinsResult> RefreshPinsAsync(OtodomPinsQuery q, CancellationToken ct = default)
+    public Task<OtodomPinsResult> RefreshPinsAsync(OtodomPinsQuery q, CancellationToken ct = default)
     {
-        if (!TryResolveFilterKey(q, out var key, out var pathAfterWyniki, out var otodomQuery, out var err))
-            return OtodomPinsResult.Fail(err!);
-
-        var flightKey = key.CacheKey;
-        var load = InflightRefresh.GetOrAdd(flightKey, _ => RefreshAndStoreAsync(key, pathAfterWyniki, otodomQuery));
-        try
-        {
-            await load.WaitAsync(ct);
-            return await GetCachedPinsAsync(q, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            log.LogWarning(ex, "Otodom refresh failed");
-            return OtodomPinsResult.Fail(FormatError(ex));
-        }
-        finally
-        {
-            InflightRefresh.TryRemove(flightKey, out _);
-        }
+        // ponytail: live listing refresh removed — load pin tables manually if needed
+        _ = (q, ct);
+        return Task.FromResult(OtodomPinsResult.Fail(
+            "Live listing refresh is disabled. Load pin data into the database manually."));
     }
 
     async Task<OtodomPinsResult> RefreshAndStoreAsync(

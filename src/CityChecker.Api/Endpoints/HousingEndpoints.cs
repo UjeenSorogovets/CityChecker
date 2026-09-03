@@ -209,7 +209,7 @@ public static class HousingEndpoints
                 new VisitDto(v.VisitId, v.DistrictId, v.VisitedAt, v.EveningFeel, v.Daylight, v.DogWalk, v.SaturdayLife, v.WinterFeel, v.Notes));
         });
 
-        // --- Otodom map pins (shared DB cache; Refresh scrapes Otodom) ---
+        // --- Flat info map pins (DB cache only) ---
         g.MapGet("/offers-access", async (ClaimsPrincipal user, AppDbContext db, IConfiguration config) =>
         {
             if (user.GetUserId() is null) return Results.Unauthorized();
@@ -217,16 +217,16 @@ public static class HousingEndpoints
             return Results.Ok(new
             {
                 allowed = OffersAccess.IsAllowed(config, email),
-                isUpdateOffers = OffersAccess.IsUpdateOffersEnabled(config),
+                isUpdateOffers = false,
             });
         });
 
-        g.MapPost("/otodom/pins", async (
-            OtodomPinsRequest body,
+        g.MapPost("/flat-pins", async (
+            FlatPinsRequest body,
             ClaimsPrincipal user,
             AppDbContext db,
             IConfiguration config,
-            OtodomMapService otodom,
+            OtodomMapService pins,
             CancellationToken ct) =>
         {
             if (await user.EnsureOffersAccessAsync(db, config) is { } denied) return denied;
@@ -235,27 +235,7 @@ public static class HousingEndpoints
             if (body.CityId is null)
                 return Results.BadRequest(new { error = "cityId required." });
 
-            var result = await otodom.GetCachedPinsAsync(ToQuery(body), ct);
-            return Results.Ok(result);
-        });
-
-        g.MapPost("/otodom/pins/refresh", async (
-            OtodomPinsRequest body,
-            ClaimsPrincipal user,
-            AppDbContext db,
-            IConfiguration config,
-            OtodomMapService otodom,
-            CancellationToken ct) =>
-        {
-            if (await user.EnsureOffersAccessAsync(db, config) is { } denied) return denied;
-            if (!OffersAccess.IsUpdateOffersEnabled(config))
-                return Results.Json(new { error = "Updating offers is disabled." }, statusCode: 403);
-            if (body.East <= body.West || body.North <= body.South)
-                return Results.BadRequest(new { error = "Invalid bbox." });
-            if (body.CityId is null)
-                return Results.BadRequest(new { error = "cityId required." });
-
-            var result = await otodom.RefreshPinsAsync(ToQuery(body), ct);
+            var result = await pins.GetCachedPinsAsync(ToQuery(body), ct);
             return Results.Ok(result);
         });
 
@@ -556,7 +536,7 @@ public static class HousingEndpoints
         o.ReminderNote = body.ReminderNote;
     }
 
-    static OtodomPinsQuery ToQuery(OtodomPinsRequest body) => new(
+    static OtodomPinsQuery ToQuery(FlatPinsRequest body) => new(
         body.CityId,
         body.PriceMax,
         body.AreaMin,
@@ -570,7 +550,7 @@ public static class HousingEndpoints
 }
 
 public record AnchorDto(Guid AnchorId, string Label, double Lat, double Lon, int SortOrder);
-public record OtodomPinsRequest(
+public record FlatPinsRequest(
     Guid? CityId,
     double? PriceMax,
     double? AreaMin,

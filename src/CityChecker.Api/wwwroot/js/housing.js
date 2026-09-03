@@ -1,25 +1,24 @@
 import { api } from "./api.js";
-import { t } from "./i18n.js";
+import { t } from "./i18n.js?v=flats1";
 
 /** @type {L.LayerGroup | null} */
 let offerLayer = null;
 /** @type {L.LayerGroup | null} */
-let otodomLayer = null;
+let flatPinsLayer = null;
 /** @type {{ map: L.Map, getActiveCityId: () => string|null, getContext: () => any }} */
 let ctx = null;
 
-const OTODOM_FILTERS_KEY = "cc_otodom_filters";
-const OTODOM_DEFAULTS = { priceMax: 650000, areaMin: 50, rooms: ["TWO", "THREE", "FOUR", "FIVE", "SIX_OR_MORE"] };
-let otodomEnabled = false;
-let otodomTimer = null;
-let otodomGen = 0;
+const FLAT_FILTERS_KEY = "cc_flat_filters";
+const FLAT_DEFAULTS = { priceMax: 650000, areaMin: 50, rooms: ["TWO", "THREE", "FOUR", "FIVE", "SIX_OR_MORE"] };
+let flatPinsEnabled = false;
+let flatPinsTimer = null;
+let flatPinsGen = 0;
 let offersAllowed = false;
-let isUpdateOffers = false;
 
 export function initHousing(options) {
   ctx = options;
   offerLayer = L.layerGroup().addTo(ctx.map);
-  otodomLayer = L.layerGroup().addTo(ctx.map);
+  flatPinsLayer = L.layerGroup().addTo(ctx.map);
   void setupOffersAccess();
 }
 
@@ -27,18 +26,13 @@ async function setupOffersAccess() {
   try {
     const access = await api("/api/housing/offers-access");
     offersAllowed = !!access?.allowed;
-    isUpdateOffers = !!access?.isUpdateOffers;
   } catch {
     offersAllowed = false;
-    isUpdateOffers = false;
   }
   if (!offersAllowed) {
     document.getElementById("offers-toggle")?.classList.add("hidden");
     document.getElementById("offers-panel")?.classList.add("hidden");
     return;
-  }
-  if (!isUpdateOffers) {
-    document.getElementById("otodom-refresh")?.classList.add("hidden");
   }
   wireUi();
   refreshOffers();
@@ -57,43 +51,34 @@ function wireUi() {
     offersPanel?.classList.toggle("open", open);
     if (open) {
       refreshOffersList();
-      if (otodomEnabled) scheduleOtodomReload(true);
+      if (flatPinsEnabled) scheduleFlatPinsReload(true);
     }
   });
 
-  loadOtodomFiltersIntoUi();
-  for (const id of ["otodom-price-max", "otodom-area-min"]) {
+  loadFlatFiltersIntoUi();
+  for (const id of ["flat-price-max", "flat-area-min"]) {
     document.getElementById(id)?.addEventListener("change", () => {
-      persistOtodomFilters();
-      if (otodomEnabled) scheduleOtodomReload();
+      persistFlatFilters();
+      if (flatPinsEnabled) scheduleFlatPinsReload();
     });
   }
-  document.querySelectorAll('input[name="otodom-room"]').forEach((el) => {
+  document.querySelectorAll('input[name="flat-room"]').forEach((el) => {
     el.addEventListener("change", () => {
-      persistOtodomFilters();
-      if (otodomEnabled) scheduleOtodomReload();
+      persistFlatFilters();
+      if (flatPinsEnabled) scheduleFlatPinsReload();
     });
   });
-  document.getElementById("otodom-show")?.addEventListener("change", (e) => {
-    otodomEnabled = !!e.target.checked;
-    if (!otodomEnabled) {
-      otodomLayer?.clearLayers();
-      setOtodomStatus(t("otodomHint"));
+  document.getElementById("flat-show")?.addEventListener("change", (e) => {
+    flatPinsEnabled = !!e.target.checked;
+    if (!flatPinsEnabled) {
+      flatPinsLayer?.clearLayers();
+      setFlatStatus(t("flatHint"));
       return;
     }
-    scheduleOtodomReload(true);
-  });
-  document.getElementById("otodom-refresh")?.addEventListener("click", () => {
-    if (!isUpdateOffers) return;
-    const show = document.getElementById("otodom-show");
-    if (show && !show.checked) {
-      show.checked = true;
-      otodomEnabled = true;
-    }
-    scheduleOtodomReload(true, { refresh: true });
+    scheduleFlatPinsReload(true);
   });
   ctx.map.on("moveend", () => {
-    if (otodomEnabled) scheduleOtodomReload();
+    if (flatPinsEnabled) scheduleFlatPinsReload();
   });
 }
 
@@ -206,54 +191,57 @@ async function refreshOffersList() {
   }
 }
 
-function setOtodomStatus(text) {
-  const el = document.getElementById("otodom-status");
+function setFlatStatus(text) {
+  const el = document.getElementById("flat-status");
   if (el) el.textContent = text;
 }
 
-function readOtodomFilters() {
-  let stored = null;
+function readStoredFlatFilters() {
   try {
-    stored = JSON.parse(localStorage.getItem(OTODOM_FILTERS_KEY) || "null");
+    const raw = localStorage.getItem(FLAT_FILTERS_KEY)
+      || localStorage.getItem("cc_otodom_filters"); // migrate once from older storage key
+    return JSON.parse(raw || "null");
   } catch {
-    stored = null;
+    return null;
   }
-  const priceMax = Number(document.getElementById("otodom-price-max")?.value);
-  const areaMin = Number(document.getElementById("otodom-area-min")?.value);
-  const rooms = [...document.querySelectorAll('input[name="otodom-room"]:checked')].map((el) => el.value);
+}
+
+function readFlatFilters() {
+  const stored = readStoredFlatFilters();
+  const priceMax = Number(document.getElementById("flat-price-max")?.value);
+  const areaMin = Number(document.getElementById("flat-area-min")?.value);
+  const rooms = [...document.querySelectorAll('input[name="flat-room"]:checked')].map((el) => el.value);
   return {
-    priceMax: Number.isFinite(priceMax) && priceMax > 0 ? priceMax : (stored?.priceMax ?? OTODOM_DEFAULTS.priceMax),
-    areaMin: Number.isFinite(areaMin) && areaMin >= 0 ? areaMin : (stored?.areaMin ?? OTODOM_DEFAULTS.areaMin),
-    rooms: rooms.length ? rooms : (stored?.rooms?.length ? stored.rooms : OTODOM_DEFAULTS.rooms),
+    priceMax: Number.isFinite(priceMax) && priceMax > 0 ? priceMax : (stored?.priceMax ?? FLAT_DEFAULTS.priceMax),
+    areaMin: Number.isFinite(areaMin) && areaMin >= 0 ? areaMin : (stored?.areaMin ?? FLAT_DEFAULTS.areaMin),
+    rooms: rooms.length ? rooms : (stored?.rooms?.length ? stored.rooms : FLAT_DEFAULTS.rooms),
   };
 }
 
-function loadOtodomFiltersIntoUi() {
-  let f = OTODOM_DEFAULTS;
-  try {
-    const stored = JSON.parse(localStorage.getItem(OTODOM_FILTERS_KEY) || "null");
-    if (stored) f = { ...OTODOM_DEFAULTS, ...stored };
-  } catch { /* keep defaults */ }
-  const priceEl = document.getElementById("otodom-price-max");
-  const areaEl = document.getElementById("otodom-area-min");
-  if (priceEl) priceEl.value = String(f.priceMax ?? OTODOM_DEFAULTS.priceMax);
-  if (areaEl) areaEl.value = String(f.areaMin ?? OTODOM_DEFAULTS.areaMin);
-  const roomSet = new Set(f.rooms?.length ? f.rooms : OTODOM_DEFAULTS.rooms);
-  document.querySelectorAll('input[name="otodom-room"]').forEach((el) => {
+function loadFlatFiltersIntoUi() {
+  let f = FLAT_DEFAULTS;
+  const stored = readStoredFlatFilters();
+  if (stored) f = { ...FLAT_DEFAULTS, ...stored };
+  const priceEl = document.getElementById("flat-price-max");
+  const areaEl = document.getElementById("flat-area-min");
+  if (priceEl) priceEl.value = String(f.priceMax ?? FLAT_DEFAULTS.priceMax);
+  if (areaEl) areaEl.value = String(f.areaMin ?? FLAT_DEFAULTS.areaMin);
+  const roomSet = new Set(f.rooms?.length ? f.rooms : FLAT_DEFAULTS.rooms);
+  document.querySelectorAll('input[name="flat-room"]').forEach((el) => {
     el.checked = roomSet.has(el.value);
   });
 }
 
-function persistOtodomFilters() {
-  localStorage.setItem(OTODOM_FILTERS_KEY, JSON.stringify(readOtodomFilters()));
+function persistFlatFilters() {
+  localStorage.setItem(FLAT_FILTERS_KEY, JSON.stringify(readFlatFilters()));
 }
 
-function scheduleOtodomReload(immediate = false, opts = {}) {
-  clearTimeout(otodomTimer);
-  otodomTimer = setTimeout(() => reloadOtodomPins(opts), immediate ? 0 : 450);
+function scheduleFlatPinsReload(immediate = false) {
+  clearTimeout(flatPinsTimer);
+  flatPinsTimer = setTimeout(() => reloadFlatPins(), immediate ? 0 : 450);
 }
 
-function otodomRequestBody(cityId, filters, bounds) {
+function flatPinsRequestBody(cityId, filters, bounds) {
   return {
     cityId,
     priceMax: filters.priceMax,
@@ -267,80 +255,74 @@ function otodomRequestBody(cityId, filters, bounds) {
   };
 }
 
-function formatOtodomStatus(res) {
+function formatFlatStatus(res) {
   const status = res.status || "";
-  if (status === "Missing") return t("otodomMissing");
+  if (status === "Missing") return t("flatMissing");
   if (status === "Failed" || res.ok === false) {
-    return res.error || t("otodomFailed");
+    return res.error || t("flatFailed");
   }
 
   const n = (res.pins || []).length;
   const total = res.totalMatched;
   const listed = res.listed;
   const parts = [];
-  if (n) parts.push(`${t("otodomLoaded")}: ${n}`);
-  else parts.push(t("otodomEmpty"));
+  if (n) parts.push(`${t("flatLoaded")}: ${n}`);
+  else parts.push(t("flatEmpty"));
   if (total != null) {
-    let mid = `${t("otodomMatched")}: ${total}`;
-    if (listed != null && listed < total) mid += ` (${t("otodomListed")}: ${listed})`;
+    let mid = `${t("flatMatched")}: ${total}`;
+    if (listed != null && listed < total) mid += ` (${t("flatListed")}: ${listed})`;
     parts.push(mid);
   }
   if (res.fetchedAt) {
     const d = new Date(res.fetchedAt);
     if (!Number.isNaN(d.getTime())) {
-      parts.push(`${t("otodomUpdated")}: ${d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}`);
+      parts.push(`${t("flatUpdated")}: ${d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}`);
     }
   }
-  if (status === "Refreshing") parts.push(t("otodomRefreshing"));
+  if (status === "Refreshing") parts.push(t("flatRefreshing"));
   return parts.join(" · ");
 }
 
-async function reloadOtodomPins(opts = {}) {
-  if (!offersAllowed || !otodomEnabled || !ctx?.map || !otodomLayer) return;
+async function reloadFlatPins() {
+  if (!offersAllowed || !flatPinsEnabled || !ctx?.map || !flatPinsLayer) return;
   const cityId = ctx.getActiveCityId?.();
   if (!cityId) {
-    setOtodomStatus(t("otodomNeedCity"));
-    otodomLayer.clearLayers();
+    setFlatStatus(t("flatNeedCity"));
+    flatPinsLayer.clearLayers();
     return;
   }
-  const filters = readOtodomFilters();
-  persistOtodomFilters();
+  const filters = readFlatFilters();
+  persistFlatFilters();
   if (!filters.rooms.length) {
-    setOtodomStatus(t("otodomNeedRooms"));
-    otodomLayer.clearLayers();
+    setFlatStatus(t("flatNeedRooms"));
+    flatPinsLayer.clearLayers();
     return;
   }
 
-  const refresh = !!opts.refresh;
   const b = ctx.map.getBounds();
-  const gen = ++otodomGen;
-  setOtodomStatus(refresh ? t("otodomRefreshing") : t("otodomLoading"));
-  const btn = document.getElementById("otodom-refresh");
-  if (refresh && btn) btn.disabled = true;
+  const gen = ++flatPinsGen;
+  setFlatStatus(t("flatLoading"));
   try {
-    const path = refresh ? "/api/housing/otodom/pins/refresh" : "/api/housing/otodom/pins";
-    const res = await api(path, {
+    const res = await api("/api/housing/flat-pins", {
       method: "POST",
-      body: JSON.stringify(otodomRequestBody(cityId, filters, b)),
+      body: JSON.stringify(flatPinsRequestBody(cityId, filters, b)),
     });
-    if (gen !== otodomGen) return;
-    renderOtodomPins(res.pins || []);
-    setOtodomStatus(formatOtodomStatus(res));
+    if (gen !== flatPinsGen) return;
+    renderFlatPins(res.pins || []);
+    setFlatStatus(formatFlatStatus(res));
   } catch (e) {
-    if (gen !== otodomGen) return;
-    otodomLayer.clearLayers();
-    setOtodomStatus(e.message || t("otodomEmpty"));
-  } finally {
-    if (refresh && btn) btn.disabled = false;
+    if (gen !== flatPinsGen) return;
+    flatPinsLayer.clearLayers();
+    setFlatStatus(e.message || t("flatEmpty"));
   }
 }
 
-function renderOtodomPins(pins) {
-  otodomLayer.clearLayers();
+function renderFlatPins(pins) {
+  flatPinsLayer.clearLayers();
   for (const p of pins) {
     const price = p.price != null ? `${Math.round(p.price).toLocaleString("pl-PL")} zł` : "—";
     const area = p.areaM2 != null ? `${p.areaM2} m²` : "";
-    const rooms = p.rooms ? `${p.rooms} ${t("otodomRoomsShort")}` : "";
+    const rooms = p.rooms ? `${p.rooms} ${t("flatRoomsShort")}` : "";
     const m = L.circleMarker([p.lat, p.lon], {
       radius: 7,
       color: "#c45c26",
@@ -349,10 +331,10 @@ function renderOtodomPins(pins) {
       weight: 2,
     });
     const wrap = document.createElement("div");
-    wrap.className = "otodom-popup";
-    wrap.innerHTML = `<strong>${escapeHtml([price, area, rooms].filter(Boolean).join(" · ") || t("otodomOffer"))}</strong>`;
+    wrap.className = "flat-popup";
+    wrap.innerHTML = `<strong>${escapeHtml([price, area, rooms].filter(Boolean).join(" · ") || t("flatOffer"))}</strong>`;
     m.bindPopup(wrap);
-    otodomLayer.addLayer(m);
+    flatPinsLayer.addLayer(m);
   }
 }
 

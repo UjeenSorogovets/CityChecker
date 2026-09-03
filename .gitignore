@@ -20,3 +20,8 @@ DataImports/__pycache__/
 
 # Local Cursor MCP overrides (may contain passwords)
 .cursor/mcp.json
+
+# Ephemeral local scratch (certs, one-off SQL, daemon dumps)
+scripts/_tmp_*
+*.pem
+!**/wwwroot/**/*.pem

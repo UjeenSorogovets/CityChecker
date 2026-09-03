@@ -1,6 +1,6 @@
 import { api, getToken, setToken, clearToken, isTokenExpired, getUserIdFromToken } from "./api.js";
-import { applyI18n, t, toggleLang } from "./i18n.js";
-import { initHousing } from "./housing.js";
+import { applyI18n, t, toggleLang } from "./i18n.js?v=flats1";
+import { initHousing } from "./housing.js?v=flats1";
 import { createRuVoiceInput, isVoiceInputSupported } from "./voice-input.js";
 
 const ZOOM_CITY = 10;

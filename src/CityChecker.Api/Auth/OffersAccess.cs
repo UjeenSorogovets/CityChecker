@@ -1,6 +1,6 @@
 namespace CityChecker.Api.Auth;
 
-/// <summary>Email allowlist for Otodom / saved offers. Empty list = deny everyone.</summary>
+/// <summary>Email allowlist for flat info / saved offers. Empty list = deny everyone.</summary>
 public static class OffersAccess
 {
     public static HashSet<string> ParseAllowedEmails(IConfiguration config)
@@ -20,7 +20,6 @@ public static class OffersAccess
         return allowed.Contains(PasswordAuth.NormalizeEmail(email));
     }
 
-    /// <summary>When false (default), hide Update offers and block refresh scrape.</summary>
-    public static bool IsUpdateOffersEnabled(IConfiguration config) =>
-        bool.TryParse(config["Offers:IsUpdateOffers"], out var on) && on;
+    /// <summary>Live listing refresh is permanently disabled; pins come from DB only.</summary>
+    public static bool IsUpdateOffersEnabled(IConfiguration config) => false;
 }
